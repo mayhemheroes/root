@@ -1,0 +1,8 @@
+project: root
+target: genreflex
+
+cmds:
+  - cmd: /repo/build/bin/genreflex /test.h
+    env:
+      DISABLE_SMOKETEST: '1'
+    filepath: /test.h
