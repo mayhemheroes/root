@@ -1,0 +1,9 @@
+FROM --platform=linux/amd64 ubuntu:22.04
+
+RUN apt-get update
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential cmake libx11-dev libxpm-dev libxft-dev libxext-dev python-is-python3 libssl-dev binutils git
+
+COPY . /repo
+WORKDIR /repo/build
+RUN cmake ..
+RUN make -j8
