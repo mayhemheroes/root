@@ -29,7 +29,6 @@
 #include "RooMinimizer.h"
 
 #include "Riostream.h"
-#include "TIterator.h"
 #include "TClass.h"
 #include "Fit/Fitter.h"
 #include "Math/Minimizer.h"
@@ -102,22 +101,19 @@ double RooGradMinimizerFcn::DoEval(const double *x) const
                << "RooGradMinimizerFcn: Minimized function has error status but is ignored" << std::endl;
          }
 
-         TIterator *iter = _floatParamList->createIterator();
-         RooRealVar *var;
          bool first(true);
-         ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval) << "Parameter values: ";
-         while ((var = (RooRealVar *)iter->Next())) {
+         ooccoutW(nullptr, Eval) << "Parameter values: ";
+         for(auto * var : static_range_cast<RooRealVar*>(*_floatParamList)) {
             if (first) {
                first = false;
             } else
-               ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval) << ", ";
-            ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval) << var->GetName() << "=" << var->getVal();
+               ooccoutW(nullptr, Eval) << ", ";
+            ooccoutW(nullptr, Eval) << var->GetName() << "=" << var->getVal();
          }
-         delete iter;
-         ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval) << std::endl;
+         ooccoutW(nullptr, Eval) << std::endl;
 
          RooAbsReal::printEvalErrors(ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval), _printEvalErrors);
-         ooccoutW(static_cast<RooAbsArg *>(nullptr), Eval) << std::endl;
+         ooccoutW(nullptr, Eval) << std::endl;
       }
 
       if (_doEvalErrorWall) {

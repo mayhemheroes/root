@@ -45,11 +45,11 @@ public:
 
   RooWorkspace() ;
   RooWorkspace(const char* name, bool doCINTExport) ;
-  RooWorkspace(const char* name, const char* title=0) ;
+  RooWorkspace(const char* name, const char* title=nullptr) ;
   RooWorkspace(const RooWorkspace& other) ;
   ~RooWorkspace() override ;
 
-  void exportToCint(const char* namespaceName=0) ;
+  void exportToCint(const char* namespaceName=nullptr) ;
 
   bool importClassCode(const char* pat="*", bool doReplace=false) ;
   bool importClassCode(TClass* theClass, bool doReplace=false) ;
@@ -98,10 +98,6 @@ public:
 
   void merge(const RooWorkspace& /*other*/) {} ;
 
-  // Join p.d.f.s and datasets for simultaneous analysis
-  //   RooAbsPdf* joinPdf(const char* jointPdfName, const char* indexName, const char* inputMapping) ;
-  //   RooAbsData* joinData(const char* jointDataName, const char* indexName, const char* inputMapping) ;
-
   // Accessor functions
   RooAbsPdf* pdf(RooStringView name) const ;
   RooAbsReal* function(RooStringView name) const ;
@@ -113,7 +109,9 @@ public:
   RooAbsArg* arg(RooStringView name) const ;
   RooAbsArg* fundArg(RooStringView name) const ;
   RooArgSet argSet(RooStringView nameList) const ;
-  TIterator* componentIterator() const { return _allOwnedNodes.createIterator() ; }
+  TIterator* componentIterator() const
+  R__SUGGEST_ALTERNATIVE("Better iterate over RooWorkspace::components() with range-based loop instead of using RooWorkspace::componentIterator().")
+  { return _allOwnedNodes.createIterator() ; }
   const RooArgSet& components() const { return _allOwnedNodes ; }
   TObject* genobj(RooStringView name) const ;
   TObject* obj(RooStringView name) const ;
@@ -147,7 +145,7 @@ public:
 
   // Tools management
   RooFactoryWSTool& factory() ;
-  RooAbsArg* factory(const char* expr) ;
+  RooAbsArg* factory(RooStringView expr) ;
 
   // RooStudyManager modules
   bool addStudy(RooAbsStudy& study) ;
@@ -155,13 +153,13 @@ public:
   void clearStudies() ;
 
   // Print function
-  void Print(Option_t* opts=0) const override ;
+  void Print(Option_t* opts=nullptr) const override ;
 
   static void autoImportClassCode(bool flag) ;
 
   static void addClassDeclImportDir(const char* dir) ;
   static void addClassImplImportDir(const char* dir) ;
-  static void setClassFileExportDir(const char* dir=0) ;
+  static void setClassFileExportDir(const char* dir=nullptr) ;
 
   const TUUID& uuid() const { return _uuid ; }
 
@@ -169,9 +167,9 @@ public:
 
   class CodeRepo : public TObject {
   public:
-    CodeRepo(RooWorkspace* wspace=0) : _wspace(wspace), _compiledOK(true) {} ;
+    CodeRepo(RooWorkspace* wspace=nullptr) : _wspace(wspace), _compiledOK(true) {} ;
 
-    CodeRepo(const CodeRepo& other, RooWorkspace* wspace=0) : TObject(other) ,
+    CodeRepo(const CodeRepo& other, RooWorkspace* wspace=nullptr) : TObject(other) ,
           _wspace(wspace?wspace:other._wspace),
           _c2fmap(other._c2fmap),
           _fmap(other._fmap),

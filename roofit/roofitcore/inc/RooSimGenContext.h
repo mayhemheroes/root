@@ -27,7 +27,7 @@ class RooAbsCategoryLValue ;
 class RooSimGenContext : public RooAbsGenContext {
 public:
   RooSimGenContext(const RooSimultaneous &model, const RooArgSet &vars, const RooDataSet *prototype= 0,
-                   const RooArgSet* auxProto=0, bool _verbose= false);
+                   const RooArgSet* auxProto=nullptr, bool _verbose= false);
   ~RooSimGenContext() override;
   void setProtoDataOrder(Int_t* lut) override ;
 
@@ -59,7 +59,6 @@ protected:
   RooDataSet* _protoData{nullptr};           ///<! Prototype dataset
 
   RooArgSet _allVarsPdf{};        ///< All pdf variables
-  TIterator* _proxyIter{nullptr}; ///< Iterator over pdf proxies
 
   ClassDefOverride(RooSimGenContext,0) // Context for efficiently generating a dataset from a RooSimultaneous PDF
 };

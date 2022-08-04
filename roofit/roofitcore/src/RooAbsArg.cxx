@@ -82,7 +82,6 @@ for single nodes.
 #include "RooListProxy.h"
 #include "RooAbsData.h"
 #include "RooAbsCategoryLValue.h"
-#include "RooAbsRealLValue.h"
 #include "RooTrace.h"
 #include "RooRealIntegral.h"
 #include "RooConstVar.h"
@@ -169,37 +168,6 @@ RooAbsArg::RooAbsArg(const RooAbsArg &other, const char *name)
   //setAttribute(Form("CloneOf(%08x)",&other)) ;
   //cout << "RooAbsArg::cctor(" << this << ") #bools = " << _boolAttrib.size() << " #strings = " << _stringAttrib.size() << endl ;
 
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Assign all boolean and string properties of the original
-/// object. Transient properties and client-server links are not assigned.
-RooAbsArg& RooAbsArg::operator=(const RooAbsArg& other) {
-  TNamed::operator=(other);
-  RooPrintable::operator=(other);
-  _boolAttrib = other._boolAttrib;
-  _stringAttrib = other._stringAttrib;
-  _deleteWatch = other._deleteWatch;
-  _operMode = other._operMode;
-  _fast = other._fast;
-  _ownedComponents = nullptr;
-  _prohibitServerRedirect = other._prohibitServerRedirect;
-  _namePtr = other._namePtr;
-  _isConstant = other._isConstant;
-  _localNoInhibitDirty = other._localNoInhibitDirty;
-  _myws = nullptr;
-
-  bool valueProp, shapeProp;
-  for (const auto server : other._serverList) {
-    valueProp = server->_clientListValue.containsByNamePtr(&other);
-    shapeProp = server->_clientListShape.containsByNamePtr(&other);
-    addServer(*server,valueProp,shapeProp) ;
-  }
-
-  setValueDirty();
-  setShapeDirty();
-
-  return *this;
 }
 
 
@@ -312,8 +280,16 @@ void RooAbsArg::setStringAttribute(const Text_t* key, const Text_t* value)
   if (value) {
     _stringAttrib[key] = value ;
   } else {
-    _stringAttrib.erase(key) ;
+    removeStringAttribute(key);
   }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+/// Delete a string attribute with a given key.
+
+void RooAbsArg::removeStringAttribute(const Text_t* key)
+{
+  _stringAttrib.erase(key) ;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -806,11 +782,9 @@ bool RooAbsArg::recursiveCheckObservables(const RooArgSet* nset) const
 {
   RooArgSet nodeList ;
   treeNodeServerList(&nodeList) ;
-  RooFIter iter = nodeList.fwdIterator() ;
 
-  RooAbsArg* arg ;
   bool ret(false) ;
-  while((arg=iter.next())) {
+  for(RooAbsArg * arg : nodeList) {
     if (arg->getAttribute("ServerDied")) {
       coutE(LinkStateMgmt) << "RooAbsArg::recursiveCheckObservables(" << GetName() << "): ERROR: one or more servers of node "
             << arg->GetName() << " no longer exists!" << endl ;
@@ -924,8 +898,6 @@ bool RooAbsArg::observableOverlaps(const RooArgSet* nset, const RooAbsArg& testA
 
 void RooAbsArg::setValueDirty(const RooAbsArg* source)
 {
-  _allBatchesDirty = true;
-
   if (_operMode!=Auto || _inhibitDirty) return ;
 
   // Handle no-propagation scenarios first
@@ -1392,6 +1364,10 @@ void RooAbsArg::setProxyNormSet(const RooArgSet* nset)
   for ( auto& p : _proxyListCache.cache ) {
     p->changeNormSet(nset);
   }
+
+  // If the proxy normSet changed, we also have to set our value dirty flag.
+  // Otherwise, value for the new normalization set might not get recomputed!
+  setValueDirty();
 }
 
 
@@ -1661,9 +1637,7 @@ void RooAbsArg::printDirty(bool depth) const
 
     RooArgSet branchList ;
     branchNodeServerList(&branchList) ;
-    RooFIter bIter = branchList.fwdIterator() ;
-    RooAbsArg* branch ;
-    while((branch=bIter.next())) {
+    for(RooAbsArg * branch : branchList) {
       branch->printDirty(false) ;
     }
 
@@ -1798,9 +1772,7 @@ bool RooAbsArg::findConstantNodes(const RooArgSet& observables, RooArgSet& cache
   // Check if node depends on any non-constant parameter
   bool canOpt(true) ;
   RooArgSet* paramSet = getParameters(observables) ;
-  RooFIter iter = paramSet->fwdIterator() ;
-  RooAbsArg* param ;
-  while((param = iter.next())) {
+  for(RooAbsArg * param : *paramSet) {
     if (!param->isConstant()) {
       canOpt=false ;
       break ;
@@ -2132,11 +2104,9 @@ void RooAbsArg::graphVizTree(ostream& os, const char* delimiter, bool useTitle, 
   // First list all the tree nodes
   RooArgSet nodeSet ;
   treeNodeServerList(&nodeSet) ;
-  RooFIter iter = nodeSet.fwdIterator() ;
-  RooAbsArg* node ;
 
   // iterate over nodes
-  while((node=iter.next())) {
+  for(RooAbsArg * node : nodeSet) {
     string nodeName = node->GetName();
     string nodeTitle = node->GetTitle();
     string nodeLabel = (useTitle && !nodeTitle.empty()) ? nodeTitle : nodeName;
@@ -2235,6 +2205,13 @@ RooAbsArg* RooAbsArg::cloneTree(const char* newname) const
   RooAbsArg* head = clonedNodes.find(*this) ;
   assert(head);
 
+  // We better to release the ownership before removing the "head". Otherwise,
+  // "head" might also be deleted as the clonedNodes collection owns it.
+  // (Actually this does not happen because even an owning collection doesn't
+  // delete the element when removed by pointer lookup, but it's better not to
+  // rely on this unexpected fact).
+  clonedNodes.releaseOwnership();
+
   // Remove the head node from the cloneSet
   // To release it from the set ownership
   clonedNodes.remove(*head) ;
@@ -2287,9 +2264,7 @@ const char* RooAbsArg::aggregateCacheUniqueSuffix() const
 
   RooArgSet branches ;
   branchNodeServerList(&branches) ;
-  RooFIter iter = branches.fwdIterator();
-  RooAbsArg* arg ;
-  while((arg=iter.next())) {
+  for(RooAbsArg * arg : branches) {
     const char* tmp = arg->cacheUniqueSuffix() ;
     if (tmp) suffix += tmp ;
   }
@@ -2439,11 +2414,9 @@ void RooRefArray::Streamer(TBuffer &R__b)
 
      // Make a temporary refArray and write that to the streamer
      TRefArray refArray(GetEntriesFast());
-     TIterator* iter = MakeIterator() ;
-     TObject* tmpObj ; while ((tmpObj = iter->Next())) {
+     for(TObject * tmpObj : *this) {
        refArray.Add(tmpObj) ;
      }
-     delete iter ;
 
      refArray.Streamer(R__b) ;
      R__b.SetByteCount(R__c, true) ;

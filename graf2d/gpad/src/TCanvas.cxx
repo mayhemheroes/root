@@ -93,7 +93,7 @@ of the canvas. It gives a short explanation about the canvas' menus.
 
 A canvas may be automatically divided into pads via `TPad::Divide`.
 
-At creation time, no matter if in interactive or batch mode, the canvas size
+At creation time, no matter if in interactive or batch mode, the constructor
 defines the size of the canvas window (including the size of the window
 manager's decoration). To define precisely the graphics area size of a canvas in
 the interactive mode, the following four lines of code should be used:
@@ -110,7 +110,7 @@ and in the batch mode simply do:
       c->SetCanvasSize(w,h);
 ~~~
 
-If the canvas size this exceed the window size, scroll bars will be added to the canvas
+If the canvas size exceeds the window size, scroll bars will be added to the canvas
 This allows to display very large canvases (even bigger than the screen size). The
 Following example shows how to proceed.
 ~~~ {.cpp}
@@ -160,18 +160,18 @@ TCanvas::TCanvas(Bool_t build) : TPad(), fDoubleBuffer(0)
       Constructor();
    } else {
       const char *defcanvas = gROOT->GetDefCanvasName();
-      char *cdef;
+      TString cdef;
 
       auto lc = (TList*)gROOT->GetListOfCanvases();
       if (lc->FindObject(defcanvas)) {
-         Int_t n = lc->GetSize()+1;
-         while (lc->FindObject(Form("%s_n%d",defcanvas,n))) n++;
-         cdef = StrDup(Form("%s_n%d",defcanvas,n));
+         Int_t n = lc->GetSize() + 1;
+         do {
+            cdef.Form("%s_n%d",defcanvas,n++);
+         }  while (lc->FindObject(cdef.Data()));
       } else {
-         cdef = StrDup(Form("%s",defcanvas));
+         cdef = defcanvas;
       }
-      Constructor(cdef, cdef, 1);
-      delete [] cdef;
+      Constructor(cdef.Data(), cdef.Data(), 1);
    }
 }
 
@@ -353,9 +353,9 @@ void TCanvas::Constructor(const char *name, const char *title, Int_t form)
 ///
 /// \param[in] name    canvas name
 /// \param[in] title   canvas title
-/// \param[in] ww      is the canvas size in pixels along X
+/// \param[in] ww      is the window size in pixels along X
 ///                    (if ww < 0  the menubar is not shown)
-/// \param[in] wh      is the canvas size in pixels along Y
+/// \param[in] wh      is the window size in pixels along Y
 ///
 /// If "name" starts with "gl" the canvas is ready to receive GL output.
 
@@ -372,9 +372,9 @@ TCanvas::TCanvas(const char *name, const char *title, Int_t ww, Int_t wh) : TPad
 ///
 /// \param[in] name    canvas name
 /// \param[in] title   canvas title
-/// \param[in] ww      is the canvas size in pixels along X
+/// \param[in] ww      is the window size in pixels along X
 ///                    (if ww < 0  the menubar is not shown)
-/// \param[in] wh      is the canvas size in pixels along Y
+/// \param[in] wh      is the window size in pixels along Y
 
 void TCanvas::Constructor(const char *name, const char *title, Int_t ww, Int_t wh)
 {
@@ -439,9 +439,9 @@ void TCanvas::Constructor(const char *name, const char *title, Int_t ww, Int_t w
 /// \param[in] name         canvas name
 /// \param[in] title        canvas title
 /// \param[in] wtopx,wtopy  are the pixel coordinates of the top left corner of
-///                         the canvas  (if wtopx < 0) the menubar is not shown)
-/// \param[in] ww           is the canvas size in pixels along X
-/// \param[in] wh           is the canvas size in pixels along Y
+///                         the canvas (if wtopx < 0) the menubar is not shown)
+/// \param[in] ww           is the window size in pixels along X
+/// \param[in] wh           is the window size in pixels along Y
 ///
 /// If "name" starts with "gl" the canvas is ready to receive GL output.
 
@@ -461,8 +461,8 @@ TCanvas::TCanvas(const char *name, const char *title, Int_t wtopx, Int_t wtopy, 
 /// \param[in] title        canvas title
 /// \param[in] wtopx,wtopy  are the pixel coordinates of the top left corner of
 ///                         the canvas  (if wtopx < 0) the menubar is not shown)
-/// \param[in] ww           is the canvas size in pixels along X
-/// \param[in] wh           is the canvas size in pixels along Y
+/// \param[in] ww           is the window size in pixels along X
+/// \param[in] wh           is the window size in pixels along Y
 
 void TCanvas::Constructor(const char *name, const char *title, Int_t wtopx,
                           Int_t wtopy, Int_t ww, Int_t wh)
@@ -1504,22 +1504,20 @@ void TCanvas::ls(Option_t *option) const
 TCanvas *TCanvas::MakeDefCanvas()
 {
    const char *defcanvas = gROOT->GetDefCanvasName();
-   char *cdef;
+   TString cdef;
 
    auto lc = (TList*)gROOT->GetListOfCanvases();
    if (lc->FindObject(defcanvas)) {
       Int_t n = lc->GetSize() + 1;
-      cdef = new char[strlen(defcanvas)+15];
       do {
-         strlcpy(cdef,Form("%s_n%d", defcanvas, n++),strlen(defcanvas)+15);
-      } while (lc->FindObject(cdef));
+         cdef.Form("%s_n%d", defcanvas, n++);
+      } while (lc->FindObject(cdef.Data()));
    } else
-      cdef = StrDup(Form("%s",defcanvas));
+      cdef = defcanvas;
 
-   TCanvas *c = new TCanvas(cdef, cdef, 1);
+   TCanvas *c = new TCanvas(cdef.Data(), cdef.Data(), 1);
 
-   ::Info("TCanvas::MakeDefCanvas"," created default TCanvas with name %s",cdef);
-   delete [] cdef;
+   ::Info("TCanvas::MakeDefCanvas"," created default TCanvas with name %s",cdef.Data());
    return c;
 }
 
@@ -1834,32 +1832,25 @@ void TCanvas::SaveSource(const char *filename, Option_t *option)
 
    char quote = '"';
    std::ofstream out;
-   Int_t lenfile = strlen(filename);
-   char * fname;
-   char lcname[10];
+   TString fname;
    const char *cname = GetName();
    Bool_t invalid = kFALSE;
    //    if filename is given, open this file, otherwise create a file
    //    with a name equal to the canvasname.C
-   if (lenfile) {
-      fname = (char*)filename;
-      out.open(fname, std::ios::out);
+   if (filename && (strlen(filename) > 0)) {
+      fname = filename;
    } else {
-      Int_t nch = strlen(cname);
-      if (nch < 10) {
-         strlcpy(lcname,cname,10);
-         for (Int_t k=1;k<=nch;k++) {if (lcname[nch-k] == ' ') lcname[nch-k] = 0;}
-         if (lcname[0] == 0) {invalid = kTRUE; strlcpy(lcname,"c1",10); nch = 2;}
-         cname = lcname;
+      fname = cname;
+      fname = fname.Strip(TString::kBoth);
+      if (fname.IsNull()) {
+         invalid = kTRUE;
+         fname = "c1";
       }
-      fname = new char[nch+3];
-      strlcpy(fname,cname,nch+3);
-      strncat(fname,".C",3);
-      out.open(fname, std::ios::out);
+      fname.Append(".C");
    }
-   if (!out.good ()) {
-      Error("SaveSource", "Cannot open file: %s",fname);
-      if (!lenfile) delete [] fname;
+   out.open(fname.Data(), std::ios::out);
+   if (!out.good()) {
+      Error("SaveSource", "Cannot open file: %s", fname.Data());
       return;
    }
 
@@ -1887,7 +1878,7 @@ void TCanvas::SaveSource(const char *filename, Option_t *option)
       topx = 1;    topy = 1;
    }
 
-   TString mname(fname);
+   TString mname = fname;
    out << R"CODE(#ifdef __CLING__
 #pragma cling optimize(0)
 #endif
@@ -1960,14 +1951,13 @@ void TCanvas::SaveSource(const char *filename, Option_t *option)
 
    out <<"}"<<std::endl;
    out.close();
-   Info("SaveSource","C++ Macro file: %s has been generated", fname);
+   Info("SaveSource","C++ Macro file: %s has been generated", fname.Data());
 
    //    reset bit TClass::kClassSaved for all classes
    next.Reset();
    while((cl = (TClass*)next())) {
       cl->ResetBit(TClass::kClassSaved);
    }
-   if (!lenfile) delete [] fname;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

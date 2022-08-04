@@ -25,13 +25,12 @@ class RooDataSet;
 class RooRealIntegral;
 class RooAcceptReject;
 class TRandom;
-class TIterator;
 class RooSuperCategory ;
 
 class RooProdGenContext : public RooAbsGenContext {
 public:
   RooProdGenContext(const RooProdPdf &model, const RooArgSet &vars, const RooDataSet *prototype= 0,
-          const RooArgSet* auxProto=0, bool _verbose= false);
+          const RooArgSet* auxProto=nullptr, bool _verbose= false);
   ~RooProdGenContext() override;
 
   void setProtoDataOrder(Int_t* lut) override ;
@@ -56,7 +55,6 @@ protected:
   RooAbsPdf* _pdfClone ;
   RooRealIntegral* _pdfCcdInt ;
   RooArgSet _uniObs ;            ///< Observable to be generated with flat distribution
-  TIterator* _uniIter ;          ///< Iterator over uniform observables
   bool _ccdRefresh ;
   double * _ccdTable ;
   const RooProdPdf *_pdf ;       ///<  Original PDF

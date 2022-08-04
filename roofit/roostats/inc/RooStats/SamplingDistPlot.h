@@ -15,7 +15,6 @@
 #include "Compression.h"
 #include "RooPrintable.h"
 #include "TNamed.h"
-#include "TIterator.h"
 #include "TH1F.h"
 #include "TF1.h"
 #include "TLegend.h"
@@ -55,7 +54,7 @@ namespace RooStats {
     /// set legend
     void SetLegend(TLegend* l){ fLegend = l; }
 
-    void Draw(Option_t *options=0) override;
+    void Draw(Option_t *options=nullptr) override;
 
     /// Applies a predefined style if fApplyStyle is true (default).
     void ApplyDefaultStyle(void);
@@ -119,7 +118,6 @@ namespace RooStats {
 
     TList fItems;       ///< holds TH1Fs only
     TList fOtherItems;  ///< other objects to be drawn like TLine etc.
-    TIterator* fIterator;
     RooPlot* fRooPlot;
     bool fLogXaxis;
     bool fLogYaxis;
@@ -131,8 +129,8 @@ namespace RooStats {
 
     void SetSampleWeights(const SamplingDistribution *samplingDist);
 
-    void addObject(TObject *obj, Option_t *drawOptions=0); // for TH1Fs only
-    void addOtherObject(TObject *obj, Option_t *drawOptions=0);
+    void addObject(TObject *obj, Option_t *drawOptions=nullptr); // for TH1Fs only
+    void addOtherObject(TObject *obj, Option_t *drawOptions=nullptr);
     void GetAbsoluteInterval(double &theMin, double &theMax, double &theYMax) const;
 
     ClassDefOverride(SamplingDistPlot,2)  /// Class containing the results of the HybridCalculator

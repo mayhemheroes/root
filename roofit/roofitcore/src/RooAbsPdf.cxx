@@ -176,10 +176,8 @@ called for each data event.
 #include "RunContext.h"
 
 #include "ROOT/StringUtils.hxx"
-#include "TClass.h"
 #include "TMath.h"
 #include "TPaveText.h"
-#include "TList.h"
 #include "TMatrixD.h"
 #include "TMatrixDSym.h"
 #include "Math/CholeskyDecomp.h"
@@ -650,13 +648,9 @@ void RooAbsPdf::setTraceCounter(Int_t value, bool allNodes)
   } else {
     RooArgList branchList ;
     branchNodeServerList(&branchList) ;
-    TIterator* iter = branchList.createIterator() ;
-    RooAbsArg* arg ;
-    while((arg=(RooAbsArg*)iter->Next())) {
-      RooAbsPdf* pdf = dynamic_cast<RooAbsPdf*>(arg) ;
+    for(auto * pdf : dynamic_range_cast<RooAbsPdf*>(branchList)) {
       if (pdf) pdf->setTraceCounter(value,false) ;
     }
-    delete iter ;
   }
 
 }
@@ -1059,7 +1053,7 @@ RooAbsReal* RooAbsPdf::createNLL(RooAbsData& data, const RooLinkedList& cmdList)
   }
 
   // Clear possible range attributes from previous fits.
-  setStringAttribute("fitrange", nullptr);
+  removeStringAttribute("fitrange");
 
   if (pc.hasProcessed("Range")) {
     double rangeLo = pc.getDouble("rangeLo") ;
@@ -1117,7 +1111,8 @@ RooAbsReal* RooAbsPdf::createNLL(RooAbsData& data, const RooLinkedList& cmdList)
                                                projDeps,
                                                ext,
                                                pc.getDouble("IntegrateBins"),
-                                               batchMode).release();
+                                               batchMode,
+                                               doOffset).release();
   }
 
   // Construct NLL
@@ -1679,7 +1674,7 @@ RooFitResult* RooAbsPdf::fitTo(RooAbsData& data, const RooLinkedList& cmdList)
   cfg.doSumW2 = pc.getInt("doSumW2");
   cfg.doAsymptotic = pc.getInt("doAsymptoticError");
   cfg.minosSet = static_cast<RooArgSet*>(pc.getObject("minosSet"));
-  cfg.minType = pc.getString("mintype","Minuit");
+  cfg.minType = pc.getString("mintype","");
   cfg.minAlg = pc.getString("minalg","minuit");
 
   return minimizeNLL(*nll, data, cfg).release();
@@ -1713,28 +1708,10 @@ RooFitResult* RooAbsPdf::chi2FitTo(RooDataHist& data, const RooLinkedList& cmdLi
 ////////////////////////////////////////////////////////////////////////////////
 /// Create a \f$ \chi^2 \f$ from a histogram and this function.
 ///
-/// Options to control construction of the \f$ \chi^2 \f$
+/// Options to control construction of the chi-square
 /// ------------------------------------------
-/// <table>
-/// <tr><th> Type of CmdArg    <th>    Effect on \f$ \chi^2 \f$
-/// <tr><td> `Extended()`   <td>  Use expected number of events of an extended p.d.f as normalization
-/// <tr><td> `DataError()`  <td>  Choose between:
-///                             - Expected error [RooAbsData::Expected]
-///                             - Observed error (e.g. Sum-of-weights) [RooAbsData::SumW2]
-///                             - Poisson interval [RooAbsData::Poisson]
-///                             - Default: Expected error for unweighted data, Sum-of-weights for weighted data [RooAbsData::Auto]
-/// <tr><td> `NumCPU()`     <td>  Activate parallel processing feature
-/// <tr><td> `Range()`      <td>  Fit only selected region
-/// <tr><td> `SumCoefRange()` <td>  Set the range in which to interpret the coefficients of RooAddPdf components
-/// <tr><td> `SplitRange()`   <td>  Fit ranges used in different categories get named after the category.
-/// Using `Range("range"), SplitRange()` as switches, different ranges could be set like this:
-/// ```
-/// myVariable.setRange("range_pi0", 135, 210);
-/// myVariable.setRange("range_gamma", 50, 210);
-/// ```
-/// <tr><td> `ConditionalObservables(Args_t &&... argsOrArgSet)`  <td>  Define projected observables.
-//                                Arguments can either be multiple RooRealVar or a single RooArgSet containing them.
-/// </table>
+/// The list of supported command arguments is given in the documentation for
+///     RooChi2Var::RooChi2Var(const char *name, const char* title, RooAbsReal& func, RooDataHist& hdata, const RooCmdArg&,const RooCmdArg&,const RooCmdArg&, const RooCmdArg&,const RooCmdArg&,const RooCmdArg&, const RooCmdArg&,const RooCmdArg&,const RooCmdArg&).
 
 RooAbsReal* RooAbsPdf::createChi2(RooDataHist& data, const RooCmdArg& arg1,  const RooCmdArg& arg2,
                const RooCmdArg& arg3,  const RooCmdArg& arg4, const RooCmdArg& arg5,
@@ -1761,7 +1738,7 @@ RooAbsReal* RooAbsPdf::createChi2(RooDataHist& data, const RooCmdArg& arg1,  con
   string baseName = Form("chi2_%s_%s",GetName(),data.GetName()) ;
 
   // Clear possible range attributes from previous fits.
-  setStringAttribute("fitrange", nullptr);
+  removeStringAttribute("fitrange");
 
   if (!rangeName || strchr(rangeName,',')==0) {
     // Simple case: default range, or single restricted range
@@ -2725,7 +2702,7 @@ RooPlot* RooAbsPdf::plotOn(RooPlot* frame, RooLinkedList& cmdList) const
     coutI(Plotting) << "RooAbsPdf::plotOn(" << GetName() << ") p.d.f was fitted in a subrange and no explicit "
           << (plotRange?"Range()":"") << ((plotRange&&normRange2)?" and ":"")
           << (normRange2?"NormRange()":"") << " was specified. Plotting / normalising in fit range. To override, do one of the following"
-          << "\n\t- Clear the automatic fit range attribute: <pdf>.setStringAttribute(\"fitrange\", nullptr);"
+          << "\n\t- Clear the automatic fit range attribute: <pdf>.removeStringAttribute(\"fitrange\");"
           << "\n\t- Explicitly specify the plotting range: Range(\"<rangeName>\")."
           << "\n\t- Explicitly specify where to compute the normalisation: NormRange(\"<rangeName>\")."
           << "\n\tThe default (full) range can be denoted with Range(\"\") / NormRange(\"\")."<< endl ;

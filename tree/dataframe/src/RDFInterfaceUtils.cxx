@@ -37,6 +37,7 @@
 #endif
 
 #include <algorithm>
+#include <cassert>
 #include <unordered_set>
 #include <stdexcept>
 #include <string>
@@ -115,7 +116,8 @@ static ColumnNames_t FindUsedColumns(const std::string &expr, const ColumnNames_
       // potential columns are sorted by length, so we search from the end
       auto isRDFColumn = [&](const std::string &columnOrAlias) {
          const auto &col = customColumns.ResolveAlias(columnOrAlias);
-         if (customColumns.HasName(col) || IsStrInVec(col, treeBranchNames) || IsStrInVec(col, dataSourceColNames))
+         if (customColumns.IsDefineOrAlias(col) || IsStrInVec(col, treeBranchNames) ||
+             IsStrInVec(col, dataSourceColNames))
             return true;
          return false;
       };
@@ -141,7 +143,7 @@ static ParsedExpression ParseRDFExpression(std::string_view expr, const ColumnNa
       "(^|\\W)#(?!(ifdef|ifndef|if|else|elif|endif|pragma|define|undef|include|line))([a-zA-Z_][a-zA-Z0-9_]*)");
    colSizeReplacer.Substitute(preProcessedExpr, "$1R_rdf_sizeof_$3", "g");
 
-   const auto usedColsAndAliases =
+   auto usedColsAndAliases =
       FindUsedColumns(std::string(preProcessedExpr), treeBranchNames, customColumns, dataSourceColNames);
 
    auto escapeDots = [](const std::string &s) {
@@ -156,6 +158,14 @@ static ParsedExpression ParseRDFExpression(std::string_view expr, const ColumnNa
    // when we are done, exprWithVars willl be the same as preProcessedExpr but column names will be substituted with
    // the dummy variable names in varNames
    TString exprWithVars(preProcessedExpr);
+
+   // sort the vector usedColsAndAliases by decreasing length of its elements,
+   // so in case of friends we guarantee we never substitute a column name with another column containing it
+   // ex. without sorting when passing "x" and "fr.x", the replacer would output "var0" and "fr.var0",
+   // because it has already substituted "x", hence the "x" in "fr.x" would be recognized as "var0",
+   // whereas the desired behaviour is handling them as "var0" and "var1"
+   std::sort(usedColsAndAliases.begin(), usedColsAndAliases.end(),
+             [](const std::string &a, const std::string &b) { return a.size() > b.size(); });
    for (const auto &colOrAlias : usedColsAndAliases) {
       const auto col = customColumns.ResolveAlias(colOrAlias);
       unsigned int varIdx; // index of the variable in varName corresponding to col
@@ -423,8 +433,9 @@ void CheckValidCppVarName(std::string_view var, const std::string &where)
          isValid = false;
 
    if (!isValid) {
-      const auto error =
-         "RDataFrame::" + where + ": cannot define column \"" + std::string(var) + "\". Not a valid C++ variable name.";
+      const auto objName = where == "Define" ? "column" : "variation";
+      const auto error = "RDataFrame::" + where + ": cannot define " + objName + " \"" + std::string(var) +
+                         "\". Not a valid C++ variable name.";
       throw std::runtime_error(error);
    }
 }
@@ -495,7 +506,7 @@ void CheckForRedefinition(const std::string &where, std::string_view definedColV
    if (customCols.IsAlias(definedCol))
       error = "An alias with that name, pointing to column \"" + customCols.ResolveAlias(definedCol) +
               "\", already exists in this branch of the computation graph.";
-   else if (customCols.HasName(definedCol))
+   else if (customCols.IsDefineOrAlias(definedCol))
       error = "A column with that name has already been Define'd. Use Redefine to force redefinition.";
    // else, check if definedCol is in the list of tree branches. This is a bit better than interrogating the TTree
    // directly because correct usage of GetBranch, FindBranch, GetLeaf and FindLeaf can be tricky; so let's assume we
@@ -526,7 +537,7 @@ void CheckForDefinition(const std::string &where, std::string_view definedColVie
    }
 
    if (error.empty()) {
-      const bool isAlreadyDefined = customCols.HasName(definedCol);
+      const bool isAlreadyDefined = customCols.IsDefineOrAlias(definedCol);
       // check if definedCol is in the list of tree branches. This is a bit better than interrogating the TTree
       // directly because correct usage of GetBranch, FindBranch, GetLeaf and FindLeaf can be tricky; so let's assume we
       // got it right when we collected the list of available branches.
@@ -604,7 +615,7 @@ ColumnNames_t FindUnknownColumns(const ColumnNames_t &requiredCols, const Column
       const auto isBranch = std::find(datasetColumns.begin(), datasetColumns.end(), column) != datasetColumns.end();
       if (isBranch)
          continue;
-      if (definedCols.HasName(column))
+      if (definedCols.IsDefineOrAlias(column))
          continue;
       const auto isDataSourceColumn =
          std::find(dataSourceColumns.begin(), dataSourceColumns.end(), column) != dataSourceColumns.end();
@@ -928,7 +939,7 @@ std::vector<std::string> GetValidatedArgTypes(const ColumnNames_t &colNames, con
                                               bool vector2rvec)
 {
    auto toCheckedArgType = [&](const std::string &c) {
-      RDFDetail::RDefineBase *define = colRegister.HasName(c) ? colRegister.GetColumns().at(c).get() : nullptr;
+      RDFDetail::RDefineBase *define = colRegister.GetDefine(c);
       const auto colType = ColumnName2ColumnTypeName(c, tree, ds, define, vector2rvec);
       if (colType.rfind("CLING_UNKNOWN_TYPE", 0) == 0) { // the interpreter does not know this type
          const auto msg =
@@ -978,6 +989,46 @@ void CheckForDuplicateSnapshotColumns(const ColumnNames_t &cols)
 /// member of the input argument. It is intended for internal use only.
 void TriggerRun(ROOT::RDF::RNode &node){
    node.fLoopManager->Run();
+}
+
+/// Return copies of colsWithoutAliases and colsWithAliases with size branches for variable-sized array branches added
+/// in the right positions (i.e. before the array branches that need them).
+std::pair<std::vector<std::string>, std::vector<std::string>>
+AddSizeBranches(const std::vector<std::string> &branches, TTree *tree, std::vector<std::string> &&colsWithoutAliases,
+                std::vector<std::string> &&colsWithAliases)
+{
+   if (!tree) // nothing to do
+      return {std::move(colsWithoutAliases), std::move(colsWithAliases)};
+
+   assert(colsWithoutAliases.size() == colsWithAliases.size());
+
+   auto nCols = colsWithoutAliases.size();
+   // Use index-iteration as we modify the vector during the iteration. 
+   for (std::size_t i = 0u; i < nCols; ++i) {
+      const auto &colName = colsWithoutAliases[i];
+      if (!IsStrInVec(colName, branches))
+         continue; // this column is not a TTree branch, nothing to do
+
+      auto *b = tree->GetBranch(colName.c_str());
+      if (!b) // try harder
+         b = tree->FindBranch(colName.c_str());
+      assert(b != nullptr);
+      auto *leaves = b->GetListOfLeaves();
+      if (b->IsA() != TBranch::Class() || leaves->GetEntries() != 1)
+         continue; // this branch is not a variable-sized array, nothing to do
+
+      TLeaf *countLeaf = static_cast<TLeaf *>(leaves->At(0))->GetLeafCount();
+      if (!countLeaf || IsStrInVec(countLeaf->GetName(), colsWithoutAliases))
+         continue; // not a variable-sized array or the size branch is already there, nothing to do
+
+      // otherwise we must insert the size in colsWithoutAliases _and_ colsWithAliases
+      colsWithoutAliases.insert(colsWithoutAliases.begin() + i, countLeaf->GetName());
+      colsWithAliases.insert(colsWithAliases.begin() + i, countLeaf->GetName());
+      ++nCols;
+      ++i; // as we inserted an element in the vector we iterate over, we need to move the index forward one extra time
+   }
+
+   return {std::move(colsWithoutAliases), std::move(colsWithAliases)};
 }
 
 } // namespace RDF

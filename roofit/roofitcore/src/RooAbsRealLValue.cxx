@@ -129,7 +129,7 @@ void RooAbsRealLValue::inRange(std::span<const double> values, std::string const
   const bool infiniteMax = RooNumber::isInfinite(max);
 
   for(std::size_t i = 0; i < values.size(); ++i) {
-    out[i] = out[i] & ((infiniteMax | (values[i] <= (max+1e-6))) && (infiniteMin | (values[i] >= (min-1e-6))));
+    out[i] = out[i] && ((infiniteMax | (values[i] <= (max+1e-6))) && (infiniteMin | (values[i] >= (min-1e-6))));
   }
 
 }
@@ -182,16 +182,6 @@ RooAbsArg& RooAbsRealLValue::operator=(double newValue)
 
   return *this ;
 }
-
-
-////////////////////////////////////////////////////////////////////////////////
-/// Assignment operator from other RooAbsReal
-
-RooAbsArg& RooAbsRealLValue::operator=(const RooAbsReal& arg)
-{
-  return operator=(arg.getVal()) ;
-}
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -457,10 +447,8 @@ void RooAbsRealLValue::setBin(Int_t ibin, const char* rangeName)
   }
 
   // Set value to center of requested bin
-  setVal(getBinning(rangeName).binCenter(ibin)) ;
+  setValFast(getBinning(rangeName).binCenter(ibin)) ;
 }
-
-
 
 
 
@@ -470,10 +458,8 @@ void RooAbsRealLValue::setBin(Int_t ibin, const char* rangeName)
 void RooAbsRealLValue::setBin(Int_t ibin, const RooAbsBinning& binning)
 {
   // Set value to center of requested bin
-  setVal(binning.binCenter(ibin)) ;
+  setValFast(binning.binCenter(ibin)) ;
 }
-
-
 
 
 
@@ -485,20 +471,6 @@ void RooAbsRealLValue::randomize(const RooAbsBinning& binning)
 {
   double range= binning.highBound() - binning.lowBound() ;
   setVal(binning.lowBound() + RooRandom::uniform()*range);
-}
-
-
-
-
-
-////////////////////////////////////////////////////////////////////////////////
-/// Set value to center of bin 'ibin' of binning 'rangeName' (or of
-/// default binning if no range is specified)
-
-void RooAbsRealLValue::setBinFast(Int_t ibin, const RooAbsBinning& binning)
-{
-  // Set value to center of requested bin
-  setValFast(binning.binCenter(ibin)) ;
 }
 
 

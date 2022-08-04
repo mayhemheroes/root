@@ -840,3 +840,40 @@ TEST(RDataFrameInterface, FillCustomType)
    EXPECT_DOUBLE_EQ(res->GetMeanX(), 1.);
    EXPECT_DOUBLE_EQ(res->GetMeanY(), 2.);
 }
+
+TEST(RDataFrameInterface, RedefineFriend)
+{
+   int x = 0;
+   TTree main("main", "main");
+   main.Branch("x", &x);
+   main.Fill();
+
+   x = 42;
+   TTree fr("friend", "friend");
+   fr.Branch("x", &x);
+   fr.Fill();
+
+   main.AddFriend(&fr);
+
+   auto df = ROOT::RDataFrame(main);
+   auto sum = df.Redefine("friend.x", [](int _x) { return _x + 1; }, {"friend.x"}).Sum<int>("friend.x");
+   EXPECT_EQ(*sum, 43);
+}
+
+// #11002
+TEST(RDataFrameUtils, RegexWithFriendsInJittedFilters)
+{
+   TTree t("t", "t");
+   int x = 42;
+   t.Branch("x", &x);
+   t.Fill();
+   TTree fr("fr", "fr");
+   x = -42;
+   fr.Branch("x", &x);
+   fr.Fill();
+   t.AddFriend(&fr);
+   ROOT::RDataFrame df(t);
+   // ensure that order of operations does not matter
+   EXPECT_EQ(df.Filter("fr.x < 0 && x > 0").Count().GetValue(), 1);
+   EXPECT_EQ(df.Filter("x > 0 && fr.x < 0").Count().GetValue(), 1);
+}

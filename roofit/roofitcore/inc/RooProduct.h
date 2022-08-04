@@ -30,7 +30,8 @@ class RooProduct : public RooAbsReal {
 public:
 
   RooProduct() ;
-  RooProduct(const char *name, const char *title, const RooArgList& _prodSet) ;
+  RooProduct(const char *name, const char *title, const RooArgList& prodSet) ;
+  RooProduct(const char *name, const char *title, RooAbsReal& real1, RooAbsReal& real2) ;
 
   RooProduct(const RooProduct& other, const char* name = 0);
 
@@ -40,8 +41,8 @@ public:
   bool forceAnalyticalInt(const RooAbsArg& dep) const override ;
   Int_t getAnalyticalIntegralWN(RooArgSet& allVars, RooArgSet& analVars,
                                                    const RooArgSet* normSet,
-                                                   const char* rangeName=0) const override ;
-  double analyticalIntegral(Int_t code, const char* rangeName=0) const override;
+                                                   const char* rangeName=nullptr) const override ;
+  double analyticalIntegral(Int_t code, const char* rangeName=nullptr) const override;
 
 
   RooArgList components() { RooArgList tmp(_compRSet) ; tmp.add(_compCSet) ; return tmp ; }
@@ -60,6 +61,8 @@ public:
   void setCacheAndTrackHints(RooArgSet&) override ;
 
 protected:
+
+  void ioStreamerPass2() override ;
 
   RooListProxy _compRSet ;
   RooListProxy _compCSet ;
@@ -81,7 +84,7 @@ protected:
 
   const char* makeFPName(const char *pfx,const RooArgSet& terms) const ;
   ProdMap* groupProductTerms(const RooArgSet&) const;
-  Int_t getPartIntList(const RooArgSet* iset, const char *rangeName=0) const;
+  Int_t getPartIntList(const RooArgSet* iset, const char *rangeName=nullptr) const;
 
   ClassDefOverride(RooProduct,3) // Product of RooAbsReal and/or RooAbsCategory terms
 };

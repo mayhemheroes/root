@@ -24,7 +24,7 @@ public:
 
   RooProfileLL() ;
   RooProfileLL(const char *name, const char *title, RooAbsReal& nll, const RooArgSet& observables);
-  RooProfileLL(const RooProfileLL& other, const char* name=0) ;
+  RooProfileLL(const RooProfileLL& other, const char* name=nullptr) ;
   TObject* clone(const char* newname) const override { return new RooProfileLL(*this,newname); }
 
   void setAlwaysStartFromMin(bool flag) { _startFromMin = flag ; }
@@ -53,9 +53,6 @@ protected:
   RooSetProxy _obs ;     ///< Parameters of profile likelihood
   RooSetProxy _par ;     ///< Marginalised parameters of likelihood
   bool _startFromMin ; ///< Always start minimization for global minimum?
-
-  TIterator* _piter ; ///<! Iterator over profile likelihood parameters to be minimized
-  TIterator* _oiter ; ///<! Iterator of profile likelihood output parameter(s)
 
   mutable std::unique_ptr<RooMinimizer> _minimizer = nullptr ; ///<! Internal minimizer instance
 

@@ -27,10 +27,9 @@ class RooArgList ;
 class RooAddition : public RooAbsReal {
 public:
 
-  RooAddition() ;
+  RooAddition() : _cacheMgr(this,10) {}
   RooAddition(const char *name, const char *title, const RooArgList& sumSet, bool takeOwnerShip=false) ;
   RooAddition(const char *name, const char *title, const RooArgList& sumSet1, const RooArgList& sumSet2, bool takeOwnerShip=false) ;
-  ~RooAddition() override ;
 
   RooAddition(const RooAddition& other, const char* name = 0);
   TObject* clone(const char* newname) const override { return new RooAddition(*this, newname); }
@@ -46,8 +45,8 @@ public:
       // Force RooRealIntegral to offer all observables for internal integration
       return true ;
   }
-  Int_t getAnalyticalIntegral(RooArgSet& allVars, RooArgSet& numVars, const char* rangeName=0) const override;
-  double analyticalIntegral(Int_t code, const char* rangeName=0) const override ;
+  Int_t getAnalyticalIntegral(RooArgSet& allVars, RooArgSet& numVars, const char* rangeName=nullptr) const override;
+  double analyticalIntegral(Int_t code, const char* rangeName=nullptr) const override ;
 
   bool setData(RooAbsData& data, bool cloneData=true) override ;
 
@@ -66,10 +65,9 @@ protected:
 
   class CacheElem : public RooAbsCacheElement {
   public:
-      ~CacheElem() override;
       // Payload
       RooArgList _I ;
-      RooArgList containedArgs(Action) override ;
+      RooArgList containedArgs(Action) override { return _I; }
   };
   mutable RooObjCacheManager _cacheMgr ; ///<! The cache manager
 

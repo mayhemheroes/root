@@ -22,7 +22,6 @@
 
 #include "HFMsgService.h"
 
-#include <TFile.h>
 #include <TXMLAttr.h>
 #include <TXMLNode.h>
 
@@ -1025,9 +1024,6 @@ HistFactory::NormFactor ConfigParser::MakeNormFactor( TXMLNode* node ) {
     }
     else if( curAttr->GetName() == TString( "High" ) ) {
       norm.SetHigh( atof(attrVal.c_str()) );
-    }
-    else if( curAttr->GetName() == TString( "Const" ) ) {
-      norm.SetConst( CheckTrueFalse(attrVal,"NormFactor") );
     }
 
     else {

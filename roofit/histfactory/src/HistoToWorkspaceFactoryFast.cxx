@@ -58,7 +58,6 @@
 #include "HFMsgService.h"
 
 #include "TH1.h"
-#include "TTree.h"
 #include "TStopwatch.h"
 #include "TVectorD.h"
 #include "TMatrixDSym.h"
@@ -188,25 +187,19 @@ namespace HistFactory{
 
       cxcoutPHF << "Generating additional Asimov Dataset: " << AsimovName << std::endl;
       asimov.ConfigureWorkspace(ws_single);
-      RooDataSet* asimov_dataset =
-   (RooDataSet*) AsymptoticCalculator::GenerateAsimovData(*pdf, *observables);
+      std::unique_ptr<RooDataSet> asimov_dataset{static_cast<RooDataSet*>(AsymptoticCalculator::GenerateAsimovData(*pdf, *observables))};
 
       cxcoutPHF << "Importing Asimov dataset" << std::endl;
       bool failure = ws_single->import(*asimov_dataset, Rename(AsimovName.c_str()));
       if( failure ) {
         std::cout << "Error: Failed to import Asimov dataset: " << AsimovName
         << std::endl;
-        delete asimov_dataset;
    throw hf_exc();
       }
 
       // Load the snapshot at the end of every loop iteration
       // so we start each loop with a "clean" snapshot
       ws_single->loadSnapshot(SnapShotName.c_str());
-
-      // we can now deleted the data set after having imported it
-      delete asimov_dataset;
-
     }
 
     // Cool, we're done
@@ -376,7 +369,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
       std::stringstream command;
       command << "Gaussian::" << constraintName << "(" << paramName << ",nom_" << paramName << "[0.,-10,10],"
               << gaussSigma << ")";
-      constraintTermNames.emplace_back(proto.factory( command.str().c_str() )->GetName());
+      constraintTermNames.emplace_back(proto.factory(command.str())->GetName());
       auto * normParam = proto.var(std::string("nom_") + paramName);
       normParam->setConstant();
       const_cast<RooArgSet*>(proto.set("globalObservables"))->add(*normParam);
@@ -393,7 +386,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
       const std::string histoSysName = histoSys.GetName();
       RooRealVar* temp = proto.var("alpha_" + histoSysName);
       if(!temp){
-        temp = (RooRealVar*) proto.factory(("alpha_" + histoSysName + range).c_str());
+        temp = (RooRealVar*) proto.factory("alpha_" + histoSysName + range);
       }
       params.add(* temp );
     }
@@ -483,16 +476,9 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
         if( proto->obj(varname) == nullptr) {
           cxcoutI(HistFactory) << "making normFactor: " << norm.GetName() << endl;
           // remove "doRatio" and name can be changed when ws gets imported to the combined model.
-          proto->factory((varname + range.str()).c_str());
+          proto->factory(varname + range.str());
         }
 
-        if(norm.GetConst()) {
-          //     proto->var(varname)->setConstant();
-          //     cout <<"setting " << varname << " constant"<<endl;
-          cxcoutW(HistFactory) << "Const attribute to <NormFactor> tag is deprecated, will ignore." <<
-              " Instead, add \n\t<ParamSetting Const=\"True\"> " << varname << " </ParamSetting>\n" <<
-              " to your top-level XML's <Measurement> entry" << endl;
-        }
         prodNames.push_back(varname);
         rangeNames.push_back(range.str());
         normFactorNames.push_back(varname);
@@ -587,7 +573,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
       else {
          RooRealVar* alpha = (RooRealVar*) proto->var(prefix + sys.GetName());
          if(!alpha) {
-            alpha = (RooRealVar*) proto->factory((prefix + sys.GetName() + range).c_str());
+            alpha = (RooRealVar*) proto->factory(prefix + sys.GetName() + range);
          }
          // add the Gaussian constraint part
          const bool isUniform = meas.GetUniformSyst().count(sys.GetName()) > 0;
@@ -724,312 +710,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
     proto->import(tot, RecycleConflictNodes());
   }
 
-  void HistoToWorkspaceFactoryFast::AddPoissonTerms(RooWorkspace* proto, string prefix, string obsPrefix, string expPrefix, int lowBin, int highBin,
-           vector<string>& likelihoodTermNames){
-    /////////////////////////////////
-    // Relate observables to expected for each bin
-    // later modify variable named expPrefix_i to be product of terms
-    RooArgSet Pois(prefix.c_str());
-    for(Int_t i=lowBin; i<highBin; ++i){
-      std::stringstream str;
-      str<<"_"<<i;
-      //string command("Poisson::"+prefix+str.str()+"("+obsPrefix+str.str()+","+expPrefix+str.str()+")");
-      string command("Poisson::"+prefix+str.str()+"("+obsPrefix+str.str()+","+expPrefix+str.str()+",1)");//for no rounding
-      RooAbsArg* temp = (proto->factory( command.c_str() ) );
-
-      // output
-      cout << "Poisson Term " << command << endl;
-      ((RooAbsPdf*) temp)->setEvalErrorLoggingMode(RooAbsReal::PrintErrors);
-      //cout << temp << endl;
-
-      likelihoodTermNames.push_back( temp->GetName() );
-      Pois.add(* temp );
-    }
-    proto->defineSet(prefix.c_str(),Pois); // add argset to workspace
-  }
-
   //////////////////////////////////////////////////////////////////////////////
-
-  void HistoToWorkspaceFactoryFast::EditSyst(RooWorkspace* proto, const char* pdfNameChar,
-                    map<string,double> gammaSyst,
-                    map<string,double> uniformSyst,
-                    map<string,double> logNormSyst,
-                    map<string,double> noSyst) {
-    string pdfName(pdfNameChar);
-
-    ModelConfig * combined_config = (ModelConfig *) proto->obj("ModelConfig");
-    if( combined_config==nullptr ) {
-      std::cout << "Error: Failed to find object 'ModelConfig' in workspace: "
-      << proto->GetName() << std::endl;
-      throw hf_exc();
-    }
-    //    const RooArgSet * constrainedParams=combined_config->GetNuisanceParameters();
-    //    RooArgSet temp(*constrainedParams);
-    string edit="EDIT::newSimPdf("+pdfName+",";
-    string editList;
-    string lastPdf=pdfName;
-    string precede="";
-    unsigned int numReplacements = 0;
-    unsigned int nskipped = 0;
-    map<string,double>::iterator it;
-
-
-    // add gamma terms and their constraints
-    for(it=gammaSyst.begin(); it!=gammaSyst.end(); ++it) {
-      //cout << "edit for " << it->first << "with rel uncert = " << it->second << endl;
-      if(! proto->var("alpha_"+it->first)){
-   //cout << "systematic not there" << endl;
-   nskipped++;
-   continue;
-      }
-      numReplacements++;
-
-      double relativeUncertainty = it->second;
-      double scale = 1/sqrt((1+1/pow(relativeUncertainty,2)));
-
-      // this is the Gamma PDF and in a form that doesn't have roundoff problems like the Poisson does
-      proto->factory(Form("beta_%s[1,0,10]",it->first.c_str()));
-      proto->factory(Form("y_%s[%f]",it->first.c_str(),1./pow(relativeUncertainty,2))) ;
-      proto->factory(Form("theta_%s[%f]",it->first.c_str(),pow(relativeUncertainty,2))) ;
-      proto->factory(Form("Gamma::beta_%sConstraint(beta_%s,sum::k_%s(y_%s,one[1]),theta_%s,zero[0])",
-           it->first.c_str(),
-           it->first.c_str(),
-           it->first.c_str(),
-           it->first.c_str(),
-           it->first.c_str())) ;
-
-      /*
-      // this has some problems because N in poisson is rounded to nearest integer
-      proto->factory(Form("Poisson::beta_%sConstraint(y_%s[%f],prod::taub_%s(taus_%s[%f],beta_%s[1,0,5]))",
-           it->first.c_str(),
-           it->first.c_str(),
-           1./pow(relativeUncertainty,2),
-           it->first.c_str(),
-             it->first.c_str(),
-           1./pow(relativeUncertainty,2),
-           it->first.c_str()
-           ) ) ;
-      */
-      // combined->factory(Form("expr::alphaOfBeta('(beta-1)/%f',beta)",scale));
-      // combined->factory(Form("expr::alphaOfBeta_%s('(beta_%s-1)/%f',beta_%s)",it->first.c_str(),it->first.c_str(),scale,it->first.c_str()));
-      proto->factory(Form("PolyVar::alphaOfBeta_%s(beta_%s,{%f,%f})",it->first.c_str(),it->first.c_str(),-1./scale,1./scale));
-
-      // set beta const status to be same as alpha
-      if(proto->var("alpha_" + it->first)->isConstant()) {
-   proto->var("beta_" + it->first)->setConstant(true);
-      }
-      else {
-   proto->var("beta_" + it->first)->setConstant(false);
-      }
-      // set alpha const status to true
-      //      proto->var("alpha_" + it->first)->setConstant(true);
-
-      // replace alphas with alphaOfBeta and replace constraints
-      editList+=precede + "alpha_"+it->first+"Constraint=beta_" + it->first+ "Constraint";
-      precede=",";
-      editList+=precede + "alpha_"+it->first+"=alphaOfBeta_"+ it->first;
-
-      /*
-      if( proto->pdf("alpha_"+it->first+"Constraint") && proto->var("alpha_"+it->first)
-      cout << " checked they are there" << proto->pdf("alpha_"+it->first+"Constraint") << " " << proto->var("alpha_"+it->first) << endl;
-      else
-   cout << "NOT THERE" << endl;
-      */
-
-      // EDIT seems to die if the list of edits is too long.  So chunck them up.
-      if(numReplacements%10 == 0 && numReplacements+nskipped!=gammaSyst.size()){
-   edit="EDIT::"+lastPdf+"_("+lastPdf+","+editList+")";
-   lastPdf+="_"; // append an underscore for the edit
-   editList=""; // reset edit list
-   precede="";
-   cout << "Going to issue this edit command\n" << edit<< endl;
-   proto->factory( edit.c_str() );
-   RooAbsPdf* newOne = proto->pdf(lastPdf);
-   if(!newOne)
-     cxcoutWHF << "---------------------\n WARNING: failed to make EDIT\n\n" << endl;
-
-      }
-    }
-
-    // add uniform terms and their constraints
-    for(it=uniformSyst.begin(); it!=uniformSyst.end(); ++it) {
-      cout << "edit for " << it->first << "with rel uncert = " << it->second << endl;
-      if(! proto->var("alpha_"+it->first)){
-   cout << "systematic not there" << endl;
-   nskipped++;
-   continue;
-      }
-      numReplacements++;
-
-      // this is the Uniform PDF
-      proto->factory(Form("beta_%s[1,0,10]",it->first.c_str()));
-      proto->factory(Form("Uniform::beta_%sConstraint(beta_%s)",it->first.c_str(),it->first.c_str()));
-      proto->factory(Form("PolyVar::alphaOfBeta_%s(beta_%s,{-1,1})",it->first.c_str(),it->first.c_str()));
-
-      // set beta const status to be same as alpha
-      if(proto->var("alpha_" + it->first)->isConstant())
-   proto->var("beta_" + it->first)->setConstant(true);
-      else
-   proto->var("beta_" + it->first)->setConstant(false);
-      // set alpha const status to true
-      //      proto->var("alpha_" + it->first)->setConstant(true);
-
-      // replace alphas with alphaOfBeta and replace constraints
-      cout <<         "alpha_"+it->first+"Constraint=beta_" + it->first+ "Constraint" << endl;
-      editList+=precede + "alpha_"+it->first+"Constraint=beta_" + it->first+ "Constraint";
-      precede=",";
-      cout <<         "alpha_"+it->first+"=alphaOfBeta_"+ it->first << endl;
-      editList+=precede + "alpha_"+it->first+"=alphaOfBeta_"+ it->first;
-
-      if( proto->pdf("alpha_"+it->first+"Constraint") && proto->var("alpha_"+it->first))
-   cout << " checked they are there" << proto->pdf("alpha_"+it->first+"Constraint") << " " << proto->var("alpha_"+it->first) << endl;
-      else
-   cout << "NOT THERE" << endl;
-
-      // EDIT seems to die if the list of edits is too long.  So chunck them up.
-      if(numReplacements%10 == 0 && numReplacements+nskipped!=gammaSyst.size()){
-   edit="EDIT::"+lastPdf+"_("+lastPdf+","+editList+")";
-   lastPdf+="_"; // append an underscore for the edit
-   editList=""; // reset edit list
-   precede="";
-   cout << edit<< endl;
-   proto->factory( edit.c_str() );
-   RooAbsPdf* newOne = proto->pdf(lastPdf);
-   if(!newOne)
-     cxcoutWHF <<  "---------------------\n WARNING: failed to make EDIT\n\n" << endl;
-
-      }
-    }
-
-    /////////////////////////////////////////
-    ////////////////////////////////////
-
-
-    // add lognormal terms and their constraints
-    for(it=logNormSyst.begin(); it!=logNormSyst.end(); ++it) {
-      cout << "edit for " << it->first << "with rel uncert = " << it->second << endl;
-      if(! proto->var("alpha_"+it->first)){
-   cout << "systematic not there" << endl;
-   nskipped++;
-   continue;
-      }
-      numReplacements++;
-
-      double relativeUncertainty = it->second;
-      double kappa = 1+relativeUncertainty;
-      // when transforming beta -> alpha, need alpha=1 to be +1sigma value.
-      // the P(beta>kappa*\hat(beta)) = 16%
-      // and \hat(beta) is 1, thus
-      double scale = relativeUncertainty;
-      //double scale = kappa;
-
-      const char * cname  = it->first.c_str();
-
-      // this is the LogNormal
-      proto->factory(TString::Format("beta_%s[1,0,10]",cname));
-      proto->factory(TString::Format("nom_beta_%s[1]",cname));
-      proto->factory(TString::Format("kappa_%s[%f]",cname,kappa));
-      proto->factory(TString::Format("Lognormal::beta_%sConstraint(beta_%s,nom_beta_%s,kappa_%s)",
-                                     cname, cname, cname, cname)) ;
-      proto->factory(TString::Format("PolyVar::alphaOfBeta_%s(beta_%s,{%f,%f})",cname,cname,-1./scale,1./scale));
-
-
-      // set beta const status to be same as alpha
-      if(proto->var(TString::Format("alpha_%s",cname))->isConstant())
-   proto->var(TString::Format("beta_%s",cname))->setConstant(true);
-      else
-   proto->var(TString::Format("beta_%s",cname))->setConstant(false);
-      // set alpha const status to true
-      //      proto->var(TString::Format("alpha_%s",cname))->setConstant(true);
-
-      // replace alphas with alphaOfBeta and replace constraints
-      cout <<         "alpha_"+it->first+"Constraint=beta_" + it->first+ "Constraint" << endl;
-      editList+=precede + "alpha_"+it->first+"Constraint=beta_" + it->first+ "Constraint";
-      precede=",";
-      cout <<         "alpha_"+it->first+"=alphaOfBeta_"+ it->first << endl;
-      editList+=precede + "alpha_"+it->first+"=alphaOfBeta_"+ it->first;
-
-      if( proto->pdf("alpha_"+it->first+"Constraint") && proto->var("alpha_"+it->first) )
-   cout << " checked they are there" << proto->pdf("alpha_"+it->first+"Constraint") << " " << proto->var("alpha_"+it->first) << endl;
-      else
-   cout << "NOT THERE" << endl;
-
-      // EDIT seems to die if the list of edits is too long.  So chunck them up.
-      if(numReplacements%10 == 0 && numReplacements+nskipped!=gammaSyst.size()){
-   edit="EDIT::"+lastPdf+"_("+lastPdf+","+editList+")";
-   lastPdf+="_"; // append an underscore for the edit
-   editList=""; // reset edit list
-   precede="";
-   cout << edit<< endl;
-   proto->factory( edit.c_str() );
-   RooAbsPdf* newOne = proto->pdf(lastPdf);
-   if(!newOne)
-     cxcoutWHF << "\n\n ---------------------\n WARNING: failed to make EDIT\n\n" << endl;
-
-      }
-      // add global observables
-      const RooArgSet * gobs = proto->set("globalObservables");
-      RooArgSet gobsNew(*gobs);
-      gobsNew.add(*proto->var(TString::Format("nom_beta_%s",cname)) );
-      proto->removeSet("globalObservables");
-      proto->defineSet("globalObservables",gobsNew);
-      gobsNew.Print();
-
-    }
-
-    /////////////////////////////////////////
-
-    // MB: remove a systematic constraint
-    for(it=noSyst.begin(); it!=noSyst.end(); ++it) {
-
-      cout << "remove constraint for parameter" << it->first << endl;
-      if(! proto->var("alpha_"+it->first) || ! proto->pdf("alpha_"+it->first+"Constraint") ) {
-   cout << "systematic not there" << endl;
-   nskipped++;
-   continue;
-      }
-      numReplacements++;
-
-      // dummy replacement pdf
-      if ( !proto->var("one") ) { proto->factory("one[1.0]"); }
-      proto->var("one")->setConstant();
-
-      // replace constraints
-      cout << "alpha_"+it->first+"Constraint=one" << endl;
-      editList+=precede + "alpha_"+it->first+"Constraint=one";
-      precede=",";
-
-      // EDIT seems to die if the list of edits is too long.  So chunck them up.
-      if(numReplacements%10 == 0 && numReplacements+nskipped!=gammaSyst.size()){
-   edit="EDIT::"+lastPdf+"_("+lastPdf+","+editList+")";
-   lastPdf+="_"; // append an underscore for the edit
-   editList=""; // reset edit list
-   precede="";
-   cout << edit << endl;
-   proto->factory( edit.c_str() );
-   RooAbsPdf* newOne = proto->pdf(lastPdf);
-   if(!newOne) {
-     cxcoutWHF << "---------------------\n WARNING: failed to make EDIT\n\n" << endl;
-   }
-      }
-    }
-
-    /////////////////////////////////////////
-
-    // commit last bunch of edits
-    edit="EDIT::newSimPdf("+lastPdf+","+editList+")";
-    cout << edit<< endl;
-    proto->factory( edit.c_str() );
-    //    proto->writeToFile(("results/model_"+fRowTitle+"_edited.root").c_str());
-    RooAbsPdf* newOne = proto->pdf("newSimPdf");
-    if(newOne){
-      // newOne->graphVizTree(("results/"+pdfName+"_"+fRowTitle+"newSimPdf.dot").c_str());
-      combined_config->SetPdf(*newOne);
-    }
-    else{
-      cxcoutWHF << "\n\n ---------------------\n WARNING: failed to make EDIT\n\n" << endl;
-    }
-  }
 
   void HistoToWorkspaceFactoryFast::PrintCovarianceMatrix(RooFitResult* result, RooArgSet* params, string filename){
 
@@ -1136,7 +817,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
     vector<string>::iterator funcIter = fPreprocessFunctions.begin();
     for(;funcIter!= fPreprocessFunctions.end(); ++funcIter){
       cxcoutI(HistFactory) << "will preprocess this line: " << *funcIter <<endl;
-      proto->factory(funcIter->c_str());
+      proto->factory(*funcIter);
       proto->Print();
     }
 
@@ -1146,8 +827,8 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
     std::vector<std::vector<RooAbsArg*>> allSampleHistFuncs;
     std::vector<RooProduct*> sampleScaleFactors;
 
-    vector< pair<string,string> >   statNamePairs;
-    vector< pair<const TH1*, const TH1*> > statHistPairs; // <nominal, error>
+    std::vector< pair<string,string> >   statNamePairs;
+    std::vector< pair<const TH1*, std::unique_ptr<TH1>> > statHistPairs; // <nominal, error>
     const std::string statFuncName = "mc_stat_" + channel_name;
 
     string prefix, range;
@@ -1158,19 +839,19 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
     std::stringstream lumiStr;
     // lumi range
     lumiStr << "Lumi[" << fNomLumi << ",0," << 10.*fNomLumi << "]";
-    proto->factory(lumiStr.str().c_str());
+    proto->factory(lumiStr.str());
     cxcoutI(HistFactory) << "lumi str = " << lumiStr.str() << endl;
 
     std::stringstream lumiErrorStr;
     lumiErrorStr << "nominalLumi["<<fNomLumi << ",0,"<<fNomLumi+10*fLumiError<<"]," << fLumiError ;
-    proto->factory(("Gaussian::lumiConstraint(Lumi,"+lumiErrorStr.str()+")").c_str());
+    proto->factory("Gaussian::lumiConstraint(Lumi,"+lumiErrorStr.str()+")");
     proto->var("nominalLumi")->setConstant();
     proto->defineSet("globalObservables","nominalLumi");
     //likelihoodTermNames.push_back("lumiConstraint");
     constraintTermNames.push_back("lumiConstraint");
     cxcoutI(HistFactory) << "lumi Error str = " << lumiErrorStr.str() << endl;
 
-    //proto->factory((string("SigXsecOverSM[1.,0.5,1..8]").c_str()));
+    //proto->factory("SigXsecOverSM[1.,0.5,1..8]");
     ///////////////////////////////////
     // loop through estimates, add expectation, floating bin predictions,
     // and terms that constrain floating to expectation via uncertainties
@@ -1262,7 +943,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
               << std::endl;
 
           string UncertName  = sample.GetName() + "_" + channel_name + "_StatAbsolUncert";
-          TH1* statErrorHist = nullptr;
+          std::unique_ptr<TH1> statErrorHist;
 
           if( sample.GetStatError().GetErrorHist() == nullptr ) {
             // Make the absolute stat error
@@ -1270,12 +951,12 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
                 << " Channel: " << channel_name
                 << " Sample: "  << sample.GetName()
                 << std::endl;
-            statErrorHist = MakeAbsolUncertaintyHist( UncertName, nominal );
+            statErrorHist.reset(MakeAbsolUncertaintyHist( UncertName, nominal));
           } else {
             // clone the error histograms because in case the sample has not error hist
             // it is created in MakeAbsolUncertainty
             // we need later to clean statErrorHist
-            statErrorHist = (TH1*) sample.GetStatError().GetErrorHist()->Clone();
+            statErrorHist.reset(static_cast<TH1*>(sample.GetStatError().GetErrorHist()->Clone()));
             // We assume the (relative) error is provided.
             // We must turn it into an absolute error
             // using the nominal histogram
@@ -1291,7 +972,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
 
           // Save the nominal and error hists
           // for the building of constraint terms
-          statHistPairs.push_back( std::make_pair(nominal, statErrorHist) );
+          statHistPairs.emplace_back(nominal, std::move(statErrorHist));
 
           // To do the 'conservative' version, we would need to do some
           // intervention here.  We would probably need to create a different
@@ -1359,8 +1040,6 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
               << " to be include a ShapeFactor."
               << std::endl;
 
-          std::vector<ParamHistFunc*> paramHistFuncList;
-
           for(unsigned int i=0; i < sample.GetShapeFactorList().size(); ++i) {
 
             ShapeFactor& shapeFactor = sample.GetShapeFactorList().at(i);
@@ -1410,22 +1089,8 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
 
             } // End: Create ShapeFactor ParamHistFunc
 
-            paramHistFuncList.push_back(paramHist);
+            sampleHistFuncs.push_back(paramHist);
           } // End loop over ShapeFactor Systematics
-
-          // Now that we have the right ShapeFactor,
-          // we multiply the expected function
-
-          // Append to product of functions
-          for (auto paramHistFunc : paramHistFuncList) {
-            proto->import(*paramHistFunc, RecycleConflictNodes());
-            auto paramHFinWS = proto->arg(paramHistFunc->GetName());
-            assert(paramHFinWS);
-            delete paramHistFunc;
-
-            sampleHistFuncs.push_back(paramHFinWS);
-          }
-
         }
       } // End: if ShapeFactorName!=""
 
@@ -1559,7 +1224,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
 
     // If a non-zero number of samples call for
     // Stat Uncertainties, create the statFactor functions
-    if( statHistPairs.size() > 0 ) {
+    if(!statHistPairs.empty()) {
 
       // Create the histogram of (binwise)
       // stat uncertainties:
@@ -1597,13 +1262,6 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
           *chanStatUncertFunc, fracStatError.get(),
           statConstraintType,
           statRelErrorThreshold);
-
-
-      // clean stat hist pair (need to delete second histogram)
-      for (unsigned int i = 0; i < statHistPairs.size() ; ++i )
-        delete statHistPairs[i].second;
-
-      statHistPairs.clear();
 
     } // END: Loop over stat Hist Pairs
 
@@ -1889,11 +1547,11 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
     //    RooWorkspace* combined = chs[0];
 
 
-    RooCategory* channelCat = dynamic_cast<RooCategory*>( combined->factory(channelString.str().c_str()) );
+    RooCategory* channelCat = dynamic_cast<RooCategory*>( combined->factory(channelString.str()) );
     if (!channelCat) throw std::runtime_error("Unable to construct a category from string " + channelString.str());
 
-    RooSimultaneous * simPdf= new RooSimultaneous("simPdf","",pdfMap, *channelCat);
-    ModelConfig * combined_config = new ModelConfig("ModelConfig", combined);
+    auto simPdf= std::make_unique<RooSimultaneous>("simPdf","",pdfMap, *channelCat);
+    auto combined_config = std::make_unique<ModelConfig>("ModelConfig", combined);
     combined_config->SetWorkspace(*combined);
     //    combined_config->SetNuisanceParameters(*constrainedParams);
 
@@ -1901,45 +1559,21 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
     combined->defineSet("globalObservables",globalObs);
     combined_config->SetGlobalObservables(*combined->set("globalObservables"));
 
-
-    ////////////////////////////////////////////
-    // Make toy simultaneous dataset
-    cxcoutP(HistFactory) << "\n-----------------------------------------\n"
-        << "\tcreate toy data for " << channelString.str()
-        << "\n-----------------------------------------\n" << endl;
-
-
-    // now with weighted datasets
-    // First Asimov
-    //RooDataSet * simData=nullptr;
     combined->factory("weightVar[0,-1e10,1e10]");
     obsList.add(*combined->var("weightVar"));
+    combined->defineSet("observables",{obsList, *channelCat}, /*importMissing=*/true);
+    combined_config->SetObservables(*combined->set("observables"));
 
-    // Create Asimov data for the combined dataset
-    RooDataSet* asimov_combined = (RooDataSet*) AsymptoticCalculator::GenerateAsimovData(*simPdf,
-                                  obsList);
-    if( asimov_combined ) {
-      combined->import( *asimov_combined, Rename("asimovData"));
-    }
-    else {
-      std::cout << "Error: Failed to create combined asimov dataset" << std::endl;
-      throw hf_exc();
-    }
-    delete asimov_combined;
 
     // Now merge the observable datasets across the channels
     for(RooAbsData * data : chs[0]->allData()) {
-      // Only include RooDataSets where a data with the same name doesn't only
-      // exist in the merged workspace (like the "asimovData").
-      if(dynamic_cast<RooDataSet*>(data) && !combined->data(data->GetName())) {
+      // We are excluding the Asimov data, because it needs to be regenerated
+      // later after the parameter values are set.
+      if(std::string("asimovData") != data->GetName()) {
         MergeDataSets(combined, chs, ch_names, data->GetName(), obsList, channelCat);
       }
     }
 
-
-    obsList.add(*channelCat);
-    combined->defineSet("observables",obsList);
-    combined_config->SetObservables(*combined->set("observables"));
 
     if (RooMsgService::instance().isActive(static_cast<TObject*>(nullptr), RooFit::HistFactory, RooFit::INFO))
       combined->Print();
@@ -1948,9 +1582,6 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
             << "\tImporting combined model"
             << "\n-----------------------------------------\n" << endl;
     combined->import(*simPdf,RecycleConflictNodes());
-    //combined->import(*simPdf, RenameVariable("SigXsecOverSM","SigXsecOverSM_comb"));
-    // cout << "check pointer " << simPdf << endl;
-    //    cout << "check val " << simPdf->getVal() << endl;
 
     std::map< std::string, double>::iterator param_itr = fParamValues.begin();
     for( ; param_itr != fParamValues.end(); ++param_itr ){
@@ -1958,8 +1589,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
       std::string paramName = param_itr->first;
       double paramVal = param_itr->second;
 
-      RooRealVar* temp = combined->var( paramName );
-      if(temp) {
+      if(RooRealVar* temp = combined->var( paramName )) {
         temp->setVal( paramVal );
         cxcoutI(HistFactory) <<"setting " << paramName << " to the value: " << paramVal <<  endl;
       } else
@@ -1969,8 +1599,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
 
     for(unsigned int i=0; i<fSystToFix.size(); ++i){
       // make sure they are fixed
-      RooRealVar* temp = combined->var(fSystToFix[i]);
-      if(temp) {
+      if(RooRealVar* temp = combined->var(fSystToFix[i])) {
         temp->setConstant();
         cxcoutI(HistFactory) <<"setting " << fSystToFix.at(i) << " constant" << endl;
       } else
@@ -1989,9 +1618,28 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
     combined->importClassCode();
     //    combined->writeToFile("results/model_combined.root");
 
-    //clean up
-    delete combined_config;
-    delete simPdf;
+
+    ////////////////////////////////////////////
+    // Make toy simultaneous dataset
+    cxcoutP(HistFactory) << "\n-----------------------------------------\n"
+        << "\tcreate toy data for " << channelString.str()
+        << "\n-----------------------------------------\n" << endl;
+
+
+    // now with weighted datasets
+    // First Asimov
+
+    // Create Asimov data for the combined dataset
+    std::unique_ptr<RooDataSet> asimov_combined{static_cast<RooDataSet*>(AsymptoticCalculator::GenerateAsimovData(
+                                  *combined->pdf("simPdf"),
+                                  obsList))};
+    if( asimov_combined ) {
+      combined->import( *asimov_combined, Rename("asimovData"));
+    }
+    else {
+      std::cout << "Error: Failed to create combined asimov dataset" << std::endl;
+      throw hf_exc();
+    }
 
     return combined;
   }
@@ -2001,11 +1649,11 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
                       std::vector<std::unique_ptr<RooWorkspace>>& wspace_vec,
                       std::vector<std::string> const& channel_names,
                       std::string const& dataSetName,
-                      RooArgList obsList,
+                      RooArgList const& obsList,
                       RooCategory* channelCat) {
 
     // Create the total dataset
-    RooDataSet* simData=nullptr;
+    std::unique_ptr<RooDataSet> simData;
 
     // Loop through channels, get their individual datasets,
     // and add them to the combined dataset
@@ -2022,16 +1670,15 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
       }
 
       // Create the new Dataset
-      RooDataSet * tempData = new RooDataSet(channel_names[i].c_str(),"",
+      auto tempData = std::make_unique<RooDataSet>(channel_names[i].c_str(),"",
                     obsList, Index(*channelCat),
                     WeightVar("weightVar"),
                     Import(channel_names[i].c_str(),*obsDataInChannel));
       if(simData) {
    simData->append(*tempData);
-   delete tempData;
       }
       else {
-   simData = tempData;
+   simData = std::move(tempData);
       }
     } // End Loop Over Channels
 
@@ -2039,16 +1686,13 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
     // and import it into the workspace
     if(simData) {
       combined->import(*simData, Rename(dataSetName.c_str()));
-      delete simData;
-      simData = (RooDataSet*) combined->data(dataSetName.c_str() );
+      return static_cast<RooDataSet*>(combined->data(dataSetName));
     }
     else {
       std::cout << "Error: Unable to merge observable datasets" << std::endl;
       throw hf_exc();
+      return nullptr;
     }
-
-    return simData;
-
   }
 
 
@@ -2112,7 +1756,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
   // Total(bin i)        = Sum: Value
   //
   // TotalFracError(bin i) = Sqrt( UncertInQuad(i) ) / TotalBin(i)
-  std::unique_ptr<TH1> HistoToWorkspaceFactoryFast::MakeScaledUncertaintyHist( const std::string& Name, std::vector< std::pair<const TH1*, const TH1*> > HistVec ) const {
+  std::unique_ptr<TH1> HistoToWorkspaceFactoryFast::MakeScaledUncertaintyHist( const std::string& Name, std::vector< std::pair<const TH1*, std::unique_ptr<TH1>> > const& HistVec ) const {
 
 
     unsigned int numHists = HistVec.size();
@@ -2130,7 +1774,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
   for( unsigned int i = 0; i < HistVec.size(); ++i ) {
 
     const TH1* nominal = HistVec.at(i).first;
-    const TH1* error   = HistVec.at(i).second;
+    const TH1* error   = HistVec.at(i).second.get();
 
     if( nominal->GetNbinsX()*nominal->GetNbinsY()*nominal->GetNbinsZ() != numBins ) {
       cxcoutE(HistFactory) << "Error: Provided hists have unequal bins" << std::endl;
@@ -2158,7 +1802,7 @@ RooArgList HistoToWorkspaceFactoryFast::createObservables(const TH1 *hist, RooWo
     for( unsigned int i_hist = 0; i_hist < numHists; ++i_hist ) {
 
       const TH1* nominal = HistVec.at(i_hist).first;
-      const TH1* error   = HistVec.at(i_hist).second;
+      const TH1* error   = HistVec.at(i_hist).second.get();
 
       //Int_t binNumber = i_bins + 1;
 

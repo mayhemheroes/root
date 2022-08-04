@@ -26,19 +26,18 @@
 
 #include "RooStats/HistFactory/RooBarlowBeestonLL.h"
 #include "RooAbsReal.h"
-#include "RooAbsData.h"
 #include "RooMsgService.h"
 #include "RooRealVar.h"
 
 #include "RooStats/RooStatsUtils.h"
-#include "RooProdPdf.h"
 #include "RooCategory.h"
 #include "RooSimultaneous.h"
 #include "RooArgList.h"
-#include "RooAbsCategoryLValue.h"
 
 #include "RooStats/HistFactory/ParamHistFunc.h"
 #include "RooStats/HistFactory/HistFactoryModelUtils.h"
+
+#include <TMath.h>
 
 using namespace std ;
 
@@ -56,8 +55,6 @@ ClassImp(RooStats::HistFactory::RooBarlowBeestonLL);
 {
   // Default constructor
   // Should only be used by proof.
-  //  _piter = _par.createIterator() ;
-  //  _oiter = _obs.createIterator() ;
 }
 
 
@@ -86,9 +83,6 @@ RooStats::HistFactory::RooBarlowBeestonLL::RooBarlowBeestonLL(const char *name, 
 
   delete actualObs ;
   delete actualPars ;
-
-  _piter = _par.createIterator() ;
-  _oiter = _obs.createIterator() ;
   */
 }
 
@@ -105,9 +99,6 @@ RooStats::HistFactory::RooBarlowBeestonLL::RooBarlowBeestonLL(const RooBarlowBee
   _paramFixed(other._paramFixed)
 {
   // Copy constructor
-
-  //  _piter = _par.createIterator() ;
-  //  _oiter = _obs.createIterator() ;
 
   // _paramAbsMin.addClone(other._paramAbsMin) ;
   // _obsAbsMin.addClone(other._obsAbsMin) ;
@@ -356,17 +347,21 @@ bool RooStats::HistFactory::RooBarlowBeestonLL::getParameters(const RooArgSet* d
                                                               bool stripDisconnected) const {
   bool errorInBaseCall = RooAbsArg::getParameters( depList, outputSet, stripDisconnected );
 
+  RooArgSet toRemove;
+  toRemove.reserve( _statUncertParams.size());
+    
   for (auto const& arg : outputSet) {
 
     // If there is a gamma in the name,
     // strip it from the list of dependencies
 
     if( _statUncertParams.find(arg->GetName()) != _statUncertParams.end() ) {
-      outputSet.remove( *arg, true );
+      toRemove.add( *arg );
     }
-
   }
-
+  
+  for( auto& arg : toRemove) outputSet.remove( *arg, true );
+  
   return errorInBaseCall || false;
 
 }
@@ -440,19 +435,6 @@ void RooStats::HistFactory::RooBarlowBeestonLL::FactorizePdf(const RooArgSet &ob
 
 double RooStats::HistFactory::RooBarlowBeestonLL::evaluate() const
 {
-  /*
-  // Loop over the cached bins and channels
-  RooArgSet* channels = new RooArgSet();
-  RooArgSet* channelsWithConstraints = new RooArgSet();
-  RooStats::getChannelsFromModel( _pdf, channels, channelsWithConstraints );
-
-  // Loop over channels
-  TIterator* iter_channels = channelsWithConstraints->createIterator();
-  RooAbsPdf* channelPdf=nullptr;
-  while(( channelPdf=(RooAbsPdf*)iter_channels->Next()  )) {
-    std::string channel_name = channelPdf->GetName(); //RooStats::channelNameFromPdf( channelPdf );
-  */
-
   // Loop over the channels (keys to the map)
   //clock_t time_before_setVal, time_after_setVal;
   //time_before_setVal=clock();

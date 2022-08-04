@@ -32,7 +32,7 @@ public:
           const RooArgList& pdfList, const RooArgList& mrefList, Setting setting = NonLinearPosFractions);
   RooMomentMorph(const char *name, const char *title, RooAbsReal& _m, const RooArgList& varList,
           const RooArgList& pdfList, const TVectorD& mrefpoints, Setting setting = NonLinearPosFractions );
-  RooMomentMorph(const RooMomentMorph& other, const char* name=0) ;
+  RooMomentMorph(const RooMomentMorph& other, const char* name=nullptr) ;
   TObject* clone(const char* newname) const override { return new RooMomentMorph(*this,newname); }
   ~RooMomentMorph() override;
 
@@ -45,7 +45,7 @@ public:
     return true ;
   }
 
-  virtual double getVal(const RooArgSet* set=0) const ;
+  virtual double getVal(const RooArgSet* set=nullptr) const ;
   RooAbsPdf* sumPdf(const RooArgSet* nset) ;
 
 
@@ -53,11 +53,13 @@ protected:
 
   class CacheElem : public RooAbsCacheElement {
   public:
-    CacheElem(RooAbsPdf& sumPdf, RooChangeTracker& tracker, const RooArgList& flist) : _sumPdf(&sumPdf), _tracker(&tracker) { _frac.add(flist) ; } ;
+    CacheElem(std::unique_ptr<RooAbsPdf> && sumPdf,
+              std::unique_ptr<RooChangeTracker> && tracker,
+              const RooArgList& flist);
     ~CacheElem() override ;
     RooArgList containedArgs(Action) override ;
-    RooAbsPdf* _sumPdf ;
-    RooChangeTracker* _tracker ;
+    std::unique_ptr<RooAbsPdf> _sumPdf ;
+    std::unique_ptr<RooChangeTracker> _tracker ;
     RooArgList _frac ;
 
     RooRealVar* frac(Int_t i ) ;
@@ -83,8 +85,6 @@ protected:
   RooListProxy _pdfList ;
   mutable TVectorD* _mref;
 
-  TIterator* _varItr ;   //! do not persist
-  TIterator* _pdfItr ;   //!
   mutable TMatrixD* _M; //
 
   Setting _setting;

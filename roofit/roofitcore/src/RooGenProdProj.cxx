@@ -111,12 +111,9 @@ RooGenProdProj::RooGenProdProj(const RooGenProdProj& other, const char* name) :
   _intList("intList","List of integrals",this)
 {
   // Explicitly remove all server links at this point
-  TIterator* iter = serverIterator() ;
-  RooAbsArg* server ;
-  while((server=(RooAbsArg*)iter->Next())) {
+  for(RooAbsArg * server : servers()) {
     removeServer(*server,true) ;
   }
-  delete iter ;
 
   // Copy constructor
   _compSetOwnedN = (RooArgSet*) other._compSetN.snapshot() ;
@@ -125,19 +122,12 @@ RooGenProdProj::RooGenProdProj(const RooGenProdProj& other, const char* name) :
   _compSetOwnedD = (RooArgSet*) other._compSetD.snapshot() ;
   _compSetD.add(*_compSetOwnedD) ;
 
-  RooAbsArg* arg ;
-  TIterator* nIter = _compSetOwnedN->createIterator() ;
-  while((arg=(RooAbsArg*)nIter->Next())) {
-//     cout << "ownedN elem " << arg->GetName() << "(" << arg << ")" << endl ;
+  for (RooAbsArg * arg : *_compSetOwnedN) {
     arg->setOperMode(_operMode) ;
   }
-  delete nIter ;
-  TIterator* dIter = _compSetOwnedD->createIterator() ;
-  while((arg=(RooAbsArg*)dIter->Next())) {
-//     cout << "ownedD elem " << arg->GetName() << "(" << arg << ")" << endl ;
+  for (RooAbsArg * arg : *_compSetOwnedD) {
     arg->setOperMode(_operMode) ;
   }
-  delete dIter ;
 
   // Fill _intList
   _haveD = other._haveD ;
@@ -286,18 +276,13 @@ void RooGenProdProj::operModeHook()
 {
   // WVE use cache manager here!
 
-  RooAbsArg* arg ;
-  TIterator* nIter = _compSetOwnedN->createIterator() ;
-  while((arg=(RooAbsArg*)nIter->Next())) {
+  for(RooAbsArg * arg : *_compSetOwnedN) {
     arg->setOperMode(_operMode) ;
   }
-  delete nIter ;
 
-  TIterator* dIter = _compSetOwnedD->createIterator() ;
-  while((arg=(RooAbsArg*)dIter->Next())) {
+  for(RooAbsArg * arg : *_compSetOwnedD) {
     arg->setOperMode(_operMode) ;
   }
-  delete dIter ;
 
   _intList.at(0)->setOperMode(_operMode) ;
   if (_haveD) _intList.at(1)->setOperMode(Auto) ; // Denominator always stays in Auto mode (normalization integral)

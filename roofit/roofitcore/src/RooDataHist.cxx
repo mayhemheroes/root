@@ -336,20 +336,22 @@ RooDataHist::RooDataHist(RooStringView name, RooStringView title, const RooArgLi
 
       // Initialize importing mapped set of TH1s
       std::map<std::string,TH1*> hmap ;
-      TIter hiter = impSliceHistos.MakeIterator() ;
+      auto hiter = impSliceHistos.begin() ;
       for (const auto& token : ROOT::Split(impSliceNames, ",")) {
-        auto histo = static_cast<TH1*>(hiter.Next());
+        auto histo = static_cast<TH1*>(*hiter);
         assert(histo);
         hmap[token] = histo;
+        ++hiter;
       }
       importTH1Set(vars,*indexCat,hmap,initWgt,false) ;
     } else {
 
       // Initialize importing mapped set of RooDataHists
       std::map<std::string,RooDataHist*> dmap ;
-      TIter hiter = impSliceDHistos.MakeIterator() ;
+      auto hiter = impSliceDHistos.begin() ;
       for (const auto& token : ROOT::Split(impSliceDNames, ",")) {
-        dmap[token] = (RooDataHist*) hiter.Next() ;
+        dmap[token] = static_cast<RooDataHist*>(*hiter);
+        ++hiter;
       }
       importDHistSet(vars,*indexCat,dmap,initWgt) ;
     }
@@ -1242,11 +1244,18 @@ double RooDataHist::weightInterpolated(const RooArgSet& bin, int intOrder, bool 
   double wInt{0} ;
   if (varInfo.nRealVars == 1) {
 
+    // buffer needs to be 2 x (interpolation order + 1), with the factor 2 for x and y.
+    _interpolationBuffer.resize(2 * intOrder + 2);
+
     // 1-dimensional interpolation
     auto const& realX = static_cast<RooRealVar const&>(*bin[varInfo.realVarIdx1]);
     wInt = interpolateDim(varInfo.realVarIdx1, realX.getVal(), centralIdx, intOrder, correctForBinSize, cdfBoundaries) ;
 
   } else if (varInfo.nRealVars == 2) {
+
+    // buffer needs to be 2 x 2 x (interpolation order + 1), with one factor 2
+    // for x and y, and the other for the number of dimensions.
+    _interpolationBuffer.resize(4 * intOrder + 4);
 
     // 2-dimensional interpolation
     auto const& realX = static_cast<RooRealVar const&>(*bin[varInfo.realVarIdx1]);
@@ -1263,8 +1272,9 @@ double RooDataHist::weightInterpolated(const RooArgSet& bin, int intOrder, bool 
     auto idxMultY = _idxMult[varInfo.realVarIdx2];
     auto offsetIdx = centralIdx - idxMultY * ybinC;
 
-    std::vector<double> yarr(intOrder+1);
-    std::vector<double> xarr(intOrder+1);
+    // Use a class-member buffer to avoid repeated heap allocations.
+    double * yarr = _interpolationBuffer.data() + 2 * intOrder + 2; // add offset to skip part reserved for other dim
+    double * xarr = yarr + intOrder + 1;
     for (int i=ybinLo ; i<=intOrder+ybinLo ; i++) {
       int ibin ;
       if (i>=0 && i<ybinM) {
@@ -1292,7 +1302,7 @@ double RooDataHist::weightInterpolated(const RooArgSet& bin, int intOrder, bool 
       for (int q=0; q<=intOrder ; q++) cout << yarr[q] << " " ;
       cout << endl ;
     }
-    wInt = RooMath::interpolate(xarr.data(),yarr.data(),intOrder+1,yval) ;
+    wInt = RooMath::interpolate(xarr,yarr,intOrder+1,yval) ;
 
   } else {
 
@@ -1400,8 +1410,10 @@ double RooDataHist::interpolateDim(int iDim, double xval, size_t centralIdx, int
   auto idxMult = _idxMult[iDim];
   auto offsetIdx = centralIdx - idxMult * fbinC;
 
-  std::vector<double> yarr(intOrder+1) ;
-  std::vector<double> xarr(intOrder+1);
+  // Use a class-member buffer to avoid repeated heap allocations.
+  double * yarr = _interpolationBuffer.data();
+  double * xarr = yarr + intOrder + 1;
+
   for (int i=fbinLo ; i<=intOrder+fbinLo ; i++) {
     int ibin ;
     if (i>=0 && i<fbinM) {
@@ -1439,7 +1451,7 @@ double RooDataHist::interpolateDim(int iDim, double xval, size_t centralIdx, int
       }
     }
   }
-  return RooMath::interpolate(xarr.data(),yarr.data(),intOrder+1,xval) ;
+  return RooMath::interpolate(xarr,yarr,intOrder+1,xval) ;
 }
 
 

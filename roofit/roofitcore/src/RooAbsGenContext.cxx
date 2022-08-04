@@ -27,8 +27,6 @@ storage of common components, such as the observables definition, the
 prototype data etc..
 **/
 
-#include "TClass.h"
-
 #include "RooAbsGenContext.h"
 #include "RooRandom.h"
 #include "RooAbsPdf.h"
@@ -70,16 +68,13 @@ RooAbsGenContext::RooAbsGenContext(const RooAbsPdf& model, const RooArgSet &vars
   // Analyze the prototype dataset, if one is specified
   _nextProtoIndex= 0;
   if(0 != _prototype) {
-    TIterator *protoIterator= _prototype->get()->createIterator();
-    const RooAbsArg *proto = 0;
-    while((proto= (const RooAbsArg*)protoIterator->Next())) {
+    for (RooAbsArg const* proto : *_prototype->get()) {
       // is this variable being generated or taken from the prototype?
       if(!_theEvent.contains(*proto)) {
    _protoVars.add(*proto);
    _theEvent.addClone(*proto);
       }
     }
-    delete protoIterator;
   }
 
   // Add auxiliary protovars to _protoVars, if provided
@@ -186,10 +181,8 @@ RooDataSet *RooAbsGenContext::generate(double nEvents, bool skipInit, bool exten
   // (this is necessary since we never make a private clone, for efficiency)
   if(_prototype) {
     const RooArgSet *vars= _prototype->get();
-    TIterator *iterator= _protoVars.createIterator();
-    const RooAbsArg *arg = 0;
     bool ok(true);
-    while((arg= (const RooAbsArg*)iterator->Next())) {
+    for (RooAbsArg * arg : _protoVars) {
       if(vars->contains(*arg)) continue;
       coutE(InputArguments) << ClassName() << "::" << GetName() << ":generate: prototype dataset is missing \""
              << arg->GetName() << "\"" << endl;
@@ -197,7 +190,6 @@ RooDataSet *RooAbsGenContext::generate(double nEvents, bool skipInit, bool exten
       // WVE disable this for the moment
       // ok= false;
     }
-    delete iterator;
     // coverity[DEADCODE]
     if(!ok) return 0;
   }
@@ -308,10 +300,8 @@ void RooAbsGenContext::printClassName(ostream& os) const
 void RooAbsGenContext::printArgs(ostream& os) const
 {
   os << "[ " ;
-  TIterator* iter = _theEvent.createIterator() ;
-  RooAbsArg* arg ;
   bool first(true) ;
-  while((arg=(RooAbsArg*)iter->Next())) {
+  for (RooAbsArg * arg : _theEvent) {
     if (first) {
       first=false ;
     } else {
@@ -320,7 +310,6 @@ void RooAbsGenContext::printArgs(ostream& os) const
     os << arg->GetName() ;
   }
   os << "]" ;
-  delete iter ;
 }
 
 

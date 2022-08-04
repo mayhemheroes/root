@@ -41,7 +41,7 @@ class RooFitResult : public TNamed, public RooPrintable, public RooDirItem {
 public:
 
   // Constructors, assignment etc.
-  RooFitResult(const char* name=0, const char* title=0) ;
+  RooFitResult(const char* name=nullptr, const char* title=nullptr) ;
   RooFitResult(const RooFitResult& other) ;
   TObject* Clone(const char* newname = 0) const override {
     RooFitResult* r =  new RooFitResult(*this) ;
@@ -185,19 +185,19 @@ protected:
   Int_t    _numBadNLL ;       ///< Number calls with bad (zero,negative) likelihood
   double _minNLL ;          ///< NLL at minimum
   double _edm ;             ///< Estimated distance to minimum
-  RooArgList* _constPars ;    ///< List of constant parameters
-  RooArgList* _initPars ;     ///< List of floating parameters with initial values
-  RooArgList* _finalPars ;    ///< List of floating parameters with final values
+  RooArgList* _constPars = nullptr;    ///< List of constant parameters
+  RooArgList* _initPars = nullptr;     ///< List of floating parameters with initial values
+  RooArgList* _finalPars = nullptr;    ///< List of floating parameters with final values
 
-  mutable RooArgList* _globalCorr ;   ///<! List of global correlation coefficients
+  mutable RooArgList* _globalCorr = nullptr;   ///<! List of global correlation coefficients
   mutable TList       _corrMatrix ;   ///<! Correlation matrix (list of RooArgLists)
 
-  mutable RooArgList *_randomPars; ///<! List of floating parameters with most recent random perturbation applied
-  mutable TMatrixF* _Lt;           ///<! triangular matrix used for generate random perturbations
+  mutable RooArgList *_randomPars = nullptr; ///<! List of floating parameters with most recent random perturbation applied
+  mutable TMatrixF* _Lt = nullptr;           ///<! triangular matrix used for generate random perturbations
 
-  TMatrixDSym* _CM ;  ///< Correlation matrix
-  TMatrixDSym* _VM ;  ///< Covariance matrix
-  TVectorD* _GC ;     ///< Global correlation coefficients
+  TMatrixDSym* _CM = nullptr;  ///< Correlation matrix
+  TMatrixDSym* _VM = nullptr;  ///< Covariance matrix
+  TVectorD* _GC = nullptr;     ///< Global correlation coefficients
 
   std::vector<std::pair<std::string,int> > _statusHistory ; ///< History of status codes
 

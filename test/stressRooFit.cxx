@@ -40,7 +40,7 @@ void StatusPrint(Int_t id,const TString &title,Int_t status)
 {
   const Int_t kMAX = 65;
   Char_t number[4];
-  sprintf(number,"%2d",id);
+  snprintf(number, 4, "%2d", id);
   TString header = TString("Test ")+number+" : "+title;
   const Int_t nch = header.Length();
   for (Int_t i = nch; i < kMAX; i++) header += '.';
@@ -197,10 +197,6 @@ Int_t stressRooFit(const char* refFile, Bool_t writeRef, Int_t doVerbose, Int_t 
      TString sp = gSystem->GetFromPipe("uname -a");
      sp.Resize(60);
      printf("*  SYS: %s\n",sp.Data());
-     if (strstr(gSystem->GetBuildNode(),"Linux")) {
-        sp = gSystem->GetFromPipe("lsb_release -d -s");
-        printf("*  SYS: %s\n",sp.Data());
-     }
      if (strstr(gSystem->GetBuildNode(),"Darwin")) {
         sp  = gSystem->GetFromPipe("sw_vers -productVersion");
         sp += " Mac OS X ";

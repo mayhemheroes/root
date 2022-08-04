@@ -33,8 +33,7 @@ public:
   // Constructors, assignment etc.
   inline RooAbsRealLValue() { }
   RooAbsRealLValue(const char *name, const char *title, const char *unit= "") ;
-  RooAbsRealLValue(const RooAbsRealLValue& other, const char* name=0);
-  RooAbsRealLValue& operator=(const RooAbsRealLValue&) = default;
+  RooAbsRealLValue(const RooAbsRealLValue& other, const char* name=nullptr);
   ~RooAbsRealLValue() override;
 
   // Parameter value and error accessors
@@ -45,16 +44,15 @@ public:
   virtual void setVal(double value, const char* /*rangeName*/) {
     return setVal(value) ;
   }
-  virtual RooAbsArg& operator=(const RooAbsReal& other) ;
   virtual RooAbsArg& operator=(double newValue);
 
   // Implementation of RooAbsLValue
-  void setBin(Int_t ibin, const char* rangeName=0) override ;
-  Int_t getBin(const char* rangeName=0) const override { return getBinning(rangeName).binNumber(getVal()) ; }
-  Int_t numBins(const char* rangeName=0) const override { return getBins(rangeName) ; }
-  double getBinWidth(Int_t i, const char* rangeName=0) const override { return getBinning(rangeName).binWidth(i) ; }
+  void setBin(Int_t ibin, const char* rangeName=nullptr) override ;
+  Int_t getBin(const char* rangeName=nullptr) const override { return getBinning(rangeName).binNumber(getVal()) ; }
+  Int_t numBins(const char* rangeName=nullptr) const override { return getBins(rangeName) ; }
+  double getBinWidth(Int_t i, const char* rangeName=nullptr) const override { return getBinning(rangeName).binWidth(i) ; }
   double volume(const char* rangeName) const override { return getMax(rangeName)-getMin(rangeName) ; }
-  void randomize(const char* rangeName=0) override;
+  void randomize(const char* rangeName=nullptr) override;
 
   const RooAbsBinning* getBinningPtr(const char* rangeName) const override { return &getBinning(rangeName) ; }
   Int_t getBin(const RooAbsBinning* ptr) const override { return ptr->binNumber(getVal()) ; }
@@ -67,26 +65,24 @@ public:
   virtual void randomize(const RooAbsBinning& binning) ;
 
 
-  virtual void setBinFast(Int_t ibin, const RooAbsBinning& binning) ;
-
   // Get fit range limits
 
   /// Retrive binning configuration with given name or default binning.
-  virtual const RooAbsBinning& getBinning(const char* name=0, bool verbose=true, bool createOnTheFly=false) const = 0 ;
+  virtual const RooAbsBinning& getBinning(const char* name=nullptr, bool verbose=true, bool createOnTheFly=false) const = 0 ;
   /// Retrive binning configuration with given name or default binning.
-  virtual RooAbsBinning& getBinning(const char* name=0, bool verbose=true, bool createOnTheFly=false) = 0 ;
+  virtual RooAbsBinning& getBinning(const char* name=nullptr, bool verbose=true, bool createOnTheFly=false) = 0 ;
   /// Check if binning with given name has been defined.
   virtual bool hasBinning(const char* name) const = 0 ;
   bool inRange(const char* name) const override ;
   /// Get number of bins of currently defined range.
   /// \param name Optionally, request number of bins for range with given name.
-  virtual Int_t getBins(const char* name=0) const { return getBinning(name).numBins(); }
+  virtual Int_t getBins(const char* name=nullptr) const { return getBinning(name).numBins(); }
   /// Get minimum of currently defined range.
   /// \param name Optionally, request minimum of range with given name.
-  virtual double getMin(const char* name=0) const { return getBinning(name).lowBound(); }
+  virtual double getMin(const char* name=nullptr) const { return getBinning(name).lowBound(); }
   /// Get maximum of currently defined range.
   /// \param name Optionally, request maximum of range with given name.
-  virtual double getMax(const char* name=0) const { return getBinning(name).highBound(); }
+  virtual double getMax(const char* name=nullptr) const { return getBinning(name).highBound(); }
   /// Get low and high bound of the variable.
   /// \param name Optional range name. If not given, the default range will be used.
   /// \return A pair with [lowerBound, upperBound]
@@ -95,9 +91,9 @@ public:
     return {binning.lowBound(), binning.highBound()};
   }
   /// Check if variable has a lower bound.
-  inline bool hasMin(const char* name=0) const { return !RooNumber::isInfinite(getMin(name)); }
+  inline bool hasMin(const char* name=nullptr) const { return !RooNumber::isInfinite(getMin(name)); }
   /// Check if variable has an upper bound.
-  inline bool hasMax(const char* name=0) const { return !RooNumber::isInfinite(getMax(name)); }
+  inline bool hasMax(const char* name=nullptr) const { return !RooNumber::isInfinite(getMax(name)); }
   /// Check if variable has a binning with given name.
   bool hasRange(const char* name) const override { return hasBinning(name) ; }
 
@@ -108,7 +104,7 @@ public:
   inline bool isLValue() const override { return true; }
 
   // Test a value against our fit range
-  bool inRange(double value, const char* rangeName, double* clippedValue=0) const;
+  bool inRange(double value, const char* rangeName, double* clippedValue=nullptr) const;
   void inRange(std::span<const double> values, std::string const& rangeName, std::vector<bool>& out) const;
   bool isValidReal(double value, bool printError=false) const override ;
 
@@ -145,13 +141,13 @@ public:
   TH1F *createHistogram(const char *name, const char *yAxisLabel, double xlo, double xhi, Int_t nBins) const ;
   TH1F *createHistogram(const char *name, const char *yAxisLabel, const RooAbsBinning& bins) const ;
 
-  TH2F *createHistogram(const char *name, const RooAbsRealLValue &yvar, const char *zAxisLabel=0,
-         double* xlo=0, double* xhi=0, Int_t* nBins=0) const ;
+  TH2F *createHistogram(const char *name, const RooAbsRealLValue &yvar, const char *zAxisLabel=nullptr,
+         double* xlo=nullptr, double* xhi=nullptr, Int_t* nBins=nullptr) const ;
   TH2F *createHistogram(const char *name, const RooAbsRealLValue &yvar, const char *zAxisLabel, const RooAbsBinning** bins) const ;
 
 
   TH3F *createHistogram(const char *name, const RooAbsRealLValue &yvar, const RooAbsRealLValue &zvar,
-         const char *tAxisLabel, double* xlo=0, double* xhi=0, Int_t* nBins=0) const ;
+         const char *tAxisLabel, double* xlo=nullptr, double* xhi=nullptr, Int_t* nBins=nullptr) const ;
   TH3F *createHistogram(const char *name, const RooAbsRealLValue &yvar, const RooAbsRealLValue &zvar, const char* tAxisLabel, const RooAbsBinning** bins) const ;
 
   static TH1* createHistogram(const char *name, RooArgList &vars, const char *tAxisLabel, double* xlo, double* xhi, Int_t* nBins) ;

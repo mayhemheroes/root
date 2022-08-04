@@ -47,13 +47,12 @@ public:
       double maxValue, const char *unit= "");
   RooRealVar(const char *name, const char *title, double value,
       double minValue, double maxValue, const char *unit= "") ;
-  RooRealVar(const RooRealVar& other, const char* name=0);
-  RooRealVar& operator=(const RooRealVar& other);
+  RooRealVar(const RooRealVar& other, const char* name=nullptr);
   TObject* clone(const char* newname) const override { return new RooRealVar(*this,newname); }
   ~RooRealVar() override;
 
   // Parameter value and error accessors
-  double getValV(const RooArgSet* nset=0) const override ;
+  double getValV(const RooArgSet* nset=nullptr) const override ;
   RooSpan<const double> getValues(RooBatchCompute::RunContext& inputData, const RooArgSet* = nullptr) const final;
 
   /// Returns how many times the value of this RooRealVar was reset.
@@ -86,22 +85,22 @@ public:
   /// Set parameterised limits of the default range. See setRange(const char*, RooAbsReal&, RooAbsReal&).
   inline void setRange(RooAbsReal& min, RooAbsReal& max) { setRange(0,min,max) ; }
 
-  void setBins(Int_t nBins, const char* name=0);
-  void setBinning(const RooAbsBinning& binning, const char* name=0) ;
+  void setBins(Int_t nBins, const char* name=nullptr);
+  void setBinning(const RooAbsBinning& binning, const char* name=nullptr) ;
 
   // RooAbsRealLValue implementation
   bool hasBinning(const char* name) const override ;
-  const RooAbsBinning& getBinning(const char* name=0, bool verbose=true, bool createOnTheFly=false) const override ;
-  RooAbsBinning& getBinning(const char* name=0, bool verbose=true, bool createOnTheFly=false) override ;
+  const RooAbsBinning& getBinning(const char* name=nullptr, bool verbose=true, bool createOnTheFly=false) const override ;
+  RooAbsBinning& getBinning(const char* name=nullptr, bool verbose=true, bool createOnTheFly=false) override ;
   std::list<std::string> getBinningNames() const override ;
 
   // Set infinite fit range limits
   /// Remove lower range limit for binning with given name. Empty name means default range.
-  void removeMin(const char* name=0);
+  void removeMin(const char* name=nullptr);
   /// Remove upper range limit for binning with given name. Empty name means default range.
-  void removeMax(const char* name=0);
+  void removeMax(const char* name=nullptr);
   /// Remove range limits for binning with given name. Empty name means default range.
-  void removeRange(const char* name=0);
+  void removeRange(const char* name=nullptr);
 
   // I/O streaming interface (machine readable)
   bool readFromStream(std::istream& is, bool compact, bool verbose=false) override ;
@@ -142,7 +141,6 @@ public:
   static bool _printScientific ;
   static Int_t  _printSigDigits ;
 
-  friend class RooAbsRealLValue ;
   void setValFast(double value) override { _value = value ; setValueDirty() ; }
 
 
@@ -172,7 +170,7 @@ public:
 
   std::shared_ptr<RooRealVarSharedProperties> _sharedProp; ///<! Shared binnings associated with this instance
 
-  std::size_t _valueResetCounter; ///<! How many times the value of this variable was reset
+  std::size_t _valueResetCounter = 0; ///<! How many times the value of this variable was reset
 
   ClassDefOverride(RooRealVar,8) // Real-valued variable
 };

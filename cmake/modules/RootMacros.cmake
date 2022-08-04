@@ -296,6 +296,9 @@ function(ROOT_GENERATE_DICTIONARY dictionary)
     if(target_incdirs)
        foreach(dir ${target_incdirs})
           string(REGEX REPLACE "^[$]<BUILD_INTERFACE:(.+)>" "\\1" dir ${dir})
+          # BUILD_INTERFACE might contain space-separated paths. They are split by
+          # foreach, leaving a trailing 'include/something>'. Remove the trailing '>'.
+          string(REGEX REPLACE ">$" "" dir ${dir})
           # check that dir not a empty dir like $<BUILD_INTERFACE:>
           if(NOT ${dir} MATCHES "^[$]")
              list(APPEND incdirs ${dir})
@@ -625,7 +628,10 @@ function(ROOT_GENERATE_DICTIONARY dictionary)
       # and list exclusion for generator expressions is too complex.
       set(module_incs $<REMOVE_DUPLICATES:$<TARGET_PROPERTY:${ARG_MODULE},INCLUDE_DIRECTORIES>>)
       set(module_sysincs $<REMOVE_DUPLICATES:$<TARGET_PROPERTY:${ARG_MODULE},INTERFACE_SYSTEM_INCLUDE_DIRECTORIES>>)
-      set(module_defs $<TARGET_PROPERTY:${ARG_MODULE},COMPILE_DEFINITIONS>)
+      # The COMPILE_DEFINITIONS list might contain empty elements. These are
+      # removed with the FILTER generator expression, excluding elements that
+      # match the ^$ regexp (only matches empty strings).
+      set(module_defs "$<FILTER:$<TARGET_PROPERTY:${ARG_MODULE},COMPILE_DEFINITIONS>,EXCLUDE,^$>")
     endif()
   endif()
 
@@ -1166,6 +1172,7 @@ endfunction(ROOT_GENERATE_ROOTMAP)
 #---ROOT_FIND_DIRS_WITH_HEADERS([dir1 dir2 ...] OPTIONS [options])
 #---------------------------------------------------------------------------------------------------
 function(ROOT_FIND_DIRS_WITH_HEADERS result_dirs)
+  set(dirs "")
   if(ARGN)
     set(dirs ${ARGN})
   else()

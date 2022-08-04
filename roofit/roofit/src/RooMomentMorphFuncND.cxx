@@ -172,10 +172,6 @@ RooMomentMorphFuncND::RooMomentMorphFuncND(const RooMomentMorphFuncND &other, co
 //_____________________________________________________________________________
 RooMomentMorphFuncND::~RooMomentMorphFuncND()
 {
-   if (_parItr)
-      delete _parItr;
-   if (_obsItr)
-      delete _obsItr;
    if (_M)
       delete _M;
    if (_MSqr)
@@ -248,18 +244,6 @@ void RooMomentMorphFuncND::cartesian_product(vector<vector<T>> &out, vector<vect
 //_____________________________________________________________________________
 void RooMomentMorphFuncND::initialize()
 {
-   // TIterator* pdfItr = _referenceGrid._pdfList.createIterator() ;
-   // RooAbsReal* pdf ;
-   // for (int i=0; (pdf = dynamic_cast<RooAbsReal*>(pdfItr->Next())); ++i) {
-   //   if (!pdf) {
-   //     coutE(InputArguments) << "RooMomentMorphFunc::ctor(" << GetName() << ") ERROR: pdf " << pdf->GetName() << " is
-   //     not of type RooAbsReal" << endl ;
-   //     throw string("RooPolyMorh::ctor() ERROR pdf is not of type RooAbsReal") ;
-   //   }
-   //   _pdfList.addClone(*pdf) ;
-   // }
-   // delete pdfItr ;
-
    for (vector<RooAbsBinning *>::iterator itr = _referenceGrid._grid.begin(); itr != _referenceGrid._grid.end();
         ++itr) {
       _referenceGrid._nnuis.push_back((*itr)->numBins() + 1);
@@ -722,9 +706,6 @@ void RooMomentMorphFuncND::CacheElem::calculateFractions(const RooMomentMorphFun
    }
 
    if (self._setting == Linear || self._setting == NonLinearLinFractions) {
-      // loop over parList
-      self._parItr->Reset();
-
       // zero all fractions
       // for (int i = 0; i < 3*nPdf; ++i) {
       for (int i = 0; i < nPdf; ++i) {
@@ -736,8 +717,8 @@ void RooMomentMorphFuncND::CacheElem::calculateFractions(const RooMomentMorphFun
 
       vector<double> mtmp;
 
-      for (int j = 0; j < nPar; j++) {
-         RooRealVar *m = (RooRealVar *)(self._parItr->Next());
+      // loop over parList
+      for(auto * m : static_range_cast<RooRealVar*>(self._parList)) {
          mtmp.push_back(m->getVal());
       }
 

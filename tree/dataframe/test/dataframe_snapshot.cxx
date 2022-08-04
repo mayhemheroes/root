@@ -293,10 +293,18 @@ void checkSnapshotArrayFile(RResultPtr<RInterface<RLoopManager>> &df, unsigned i
       const auto &bv = varSizeBoolArr->at(i);
       EXPECT_EQ(thisSize, dv.size());
       EXPECT_EQ(thisSize, bv.size());
+      std::cout << "bv: ";
+      for (auto j = 0u; j < thisSize; ++j)
+         std::cout << bv[j] << ' ';
+      std::cout << "\nexpected: ";
       for (auto j = 0u; j < thisSize; ++j) {
          EXPECT_DOUBLE_EQ(dv[j], i * j);
-         EXPECT_EQ(bv[j], j % 2 == 0);
+         const bool value = bv[j];
+         const bool expected = j % 2 == 0;
+         std::cout << expected << ' ';
+         EXPECT_EQ(value, expected);
       }
+      std::cout << '\n';
    }
 }
 
@@ -862,6 +870,101 @@ TEST(RDFSnapshotMore, RedefinedDSColumn)
 
    df.Redefine("col0", [] { return 42; }).Snapshot("t", fname);
    gSystem->Unlink(fname);
+}
+
+// https://github.com/root-project/root/issues/6932
+TEST(RDFSnapshotMore, MissingSizeBranch)
+{
+   const auto inFile = "test_snapshot_missingsizebranch.root";
+   const auto outFile = "test_snapshot_missingsizebranch_out.root";
+
+   // make input tree
+   {
+      TFile f(inFile, "recreate");
+      TTree t("t", "t");
+      int sz = 1;
+      t.Branch("sz", &sz);
+      float vec[3] = {1, 2, 3};
+      t.Branch("vec", vec, "vec[sz]/F");
+      t.Fill();
+      sz = 2;
+      t.Fill();
+      sz = 3;
+      t.Fill();
+      t.Write();
+   }
+
+   ROOT::RDataFrame df("t", inFile);
+
+   // fully typed Snapshot call throws
+   EXPECT_THROW(df.Snapshot<ROOT::RVecF>("t", "NeverWrittenOut.root", {"vec"}), std::runtime_error);
+
+   // jitted Snapshot works anyway
+   auto out = df.Snapshot("t", outFile, {"vec"});
+
+   auto sizes = out->Take<int>("sz");
+   auto vecs = out->Take<ROOT::RVecF>("vec");
+
+   EXPECT_EQ(sizes->at(0), 1);
+   EXPECT_EQ(sizes->at(1), 2);
+   EXPECT_EQ(sizes->at(2), 3);
+   EXPECT_TRUE(All(vecs->at(0) == ROOT::RVecF{1}));
+   EXPECT_TRUE(All(vecs->at(1) == ROOT::RVecF{1, 2}));
+   EXPECT_TRUE(All(vecs->at(2) == ROOT::RVecF{1, 2, 3}));
+
+   gSystem->Unlink(inFile);
+}
+
+TEST(RDFSnapshotMore, OutOfOrderSizeBranch)
+{
+   const auto inFile = "test_snapshot_outofordersizebranch_in.root";
+   const auto outFile = "test_snapshot_outofordersizebranch_out.root";
+
+   // make input tree
+   {
+      TFile f(inFile, "recreate");
+      TTree t("t", "t");
+      int sz = 1;
+      t.Branch("sz", &sz);
+      float vec[3] = {1, 2, 3};
+      t.Branch("vec", vec, "vec[sz]/F");
+      t.Fill();
+      sz = 2;
+      t.Fill();
+      sz = 3;
+      t.Fill();
+      t.Write();
+   }
+
+   auto check = [](const std::vector<int> &sizes, const std::vector<ROOT::RVecF> &vecs) {
+      EXPECT_EQ(sizes.at(0), 1);
+      EXPECT_EQ(sizes.at(1), 2);
+      EXPECT_EQ(sizes.at(2), 3);
+      EXPECT_TRUE(All(vecs.at(0) == ROOT::RVecF{1}));
+      EXPECT_TRUE(All(vecs.at(1) == ROOT::RVecF{1, 2}));
+      EXPECT_TRUE(All(vecs.at(2) == ROOT::RVecF{1, 2, 3}));
+   };
+
+   {
+      // fully typed Snapshot
+      auto out = ROOT::RDataFrame("t", inFile).Snapshot<ROOT::RVecF, int>("t", outFile, {"vec", "sz"});
+      auto sizes = out->Take<int>("sz");
+      auto vecs = out->Take<ROOT::RVecF>("vec");
+
+      check(*sizes, *vecs);
+   }
+
+   {
+      // jitted Snapshot
+      auto out = ROOT::RDataFrame("t", inFile).Snapshot("t", outFile, {"vec", "sz"});
+      auto sizes = out->Take<int>("sz");
+      auto vecs = out->Take<ROOT::RVecF>("vec");
+
+      check(*sizes, *vecs);
+   }
+
+   gSystem->Unlink(inFile);
+   gSystem->Unlink(outFile);
 }
 
 /********* MULTI THREAD TESTS ***********/

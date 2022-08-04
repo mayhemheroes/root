@@ -45,9 +45,9 @@ public:
 
   // Constructors, assignment etc
   RooAbsPdf() ;
-  RooAbsPdf(const char *name, const char *title=0) ;
+  RooAbsPdf(const char *name, const char *title=nullptr) ;
   RooAbsPdf(const char *name, const char *title, double minVal, double maxVal) ;
-  // RooAbsPdf(const RooAbsPdf& other, const char* name=0);
+  // RooAbsPdf(const RooAbsPdf& other, const char* name=nullptr);
   ~RooAbsPdf() override;
 
   // Toy MC generation
@@ -185,7 +185,7 @@ public:
       int doSumW2 = -1;
       int doAsymptotic = -1;
       const RooArgSet* minosSet = nullptr;
-      std::string minType = "Minuit";
+      std::string minType;
       std::string minAlg = "minuit";
   };
   std::unique_ptr<RooFitResult> minimizeNLL(RooAbsReal & nll, RooAbsData const& data, MinimizerConfig const& cfg);
@@ -226,8 +226,8 @@ public:
   RooAbsReal* createScanCdf(const RooArgSet& iset, const RooArgSet& nset, Int_t numScanBins, Int_t intOrder) ;
 
   // Function evaluation support
-  double getValV(const RooArgSet* set=0) const override ;
-  virtual double getLogVal(const RooArgSet* set=0) const ;
+  double getValV(const RooArgSet* set=nullptr) const override ;
+  virtual double getLogVal(const RooArgSet* set=nullptr) const ;
 
   RooSpan<const double> getValues(RooBatchCompute::RunContext& evalData, const RooArgSet* normSet) const override;
   using RooAbsReal::getValues;
@@ -240,12 +240,12 @@ public:
   double getNorm(const RooArgSet& nset) const {
     return getNorm(&nset) ;
   }
-  virtual double getNorm(const RooArgSet* set=0) const ;
+  virtual double getNorm(const RooArgSet* set=nullptr) const ;
 
   virtual void resetErrorCounters(Int_t resetValue=10) ;
   void setTraceCounter(Int_t value, bool allNodes=false) ;
 
-  double analyticalIntegralWN(Int_t code, const RooArgSet* normSet, const char* rangeName=0) const override ;
+  double analyticalIntegralWN(Int_t code, const RooArgSet* normSet, const char* rangeName=nullptr) const override ;
 
   /// Shows if a PDF is self-normalized, which means that no attempt is made to add a normalization term.
   /// Always returns false, unless a PDF overrides this function.
@@ -297,14 +297,14 @@ public:
 
   const RooAbsReal* getNormIntegral(const RooArgSet& nset) const { return getNormObj(0,&nset,0) ; }
 
-  virtual const RooAbsReal* getNormObj(const RooArgSet* set, const RooArgSet* iset, const TNamed* rangeName=0) const ;
+  virtual const RooAbsReal* getNormObj(const RooArgSet* set, const RooArgSet* iset, const TNamed* rangeName=nullptr) const ;
 
   virtual RooAbsGenContext* binnedGenContext(const RooArgSet &vars, bool verbose= false) const ;
 
-  virtual RooAbsGenContext* genContext(const RooArgSet &vars, const RooDataSet *prototype=0,
-                                  const RooArgSet* auxProto=0, bool verbose= false) const ;
+  virtual RooAbsGenContext* genContext(const RooArgSet &vars, const RooDataSet *prototype=nullptr,
+                                  const RooArgSet* auxProto=nullptr, bool verbose= false) const ;
 
-  virtual RooAbsGenContext* autoGenContext(const RooArgSet &vars, const RooDataSet* prototype=0, const RooArgSet* auxProto=0,
+  virtual RooAbsGenContext* autoGenContext(const RooArgSet &vars, const RooDataSet* prototype=nullptr, const RooArgSet* auxProto=nullptr,
                   bool verbose=false, bool autoBinned=true, const char* binnedTag="") const ;
 
 private:
@@ -316,7 +316,7 @@ private:
   // Implementation version
   virtual RooPlot* paramOn(RooPlot* frame, const RooArgSet& params, bool showConstants=false,
                            const char *label= "", Int_t sigDigits = 2, Option_t *options = "NELU", double xmin=0.65,
-            double xmax= 0.99,double ymax=0.95, const RooCmdArg* formatCmd=0) ;
+            double xmax= 0.99,double ymax=0.95, const RooCmdArg* formatCmd=nullptr) ;
 
   void logBatchComputationErrors(RooSpan<const double>& outputs, std::size_t begin) const;
   bool traceEvalPdf(double value) const;
@@ -327,33 +327,20 @@ protected:
 
   RooPlot *plotOn(RooPlot *frame, PlotOpt o) const override;
 
-  friend class RooEffGenContext ;
-  friend class RooAddGenContext ;
-  friend class RooProdGenContext ;
-  friend class RooSimGenContext ;
-  friend class RooSimSplitGenContext ;
-  friend class RooConvGenContext ;
-  friend class RooSimultaneous ;
-  friend class RooAddGenContextOrig ;
-  friend class RooProdPdf ;
   friend class RooMCStudy ;
 
   Int_t* randomizeProtoOrder(Int_t nProto,Int_t nGen,bool resample=false) const ;
 
-  friend class RooExtendPdf ;
   // This also forces the definition of a copy ctor in derived classes
   RooAbsPdf(const RooAbsPdf& other, const char* name = 0);
 
-  friend class RooRealIntegral ;
   static Int_t _verboseEval ;
 
   virtual bool syncNormalization(const RooArgSet* dset, bool adjustProxies=true) const ;
 
-  friend class RooAbsAnaConvPdf ;
   mutable double _rawValue ;
   mutable RooAbsReal* _norm = nullptr; //! Normalization integral (owned by _normMgr)
   mutable RooArgSet const* _normSet = nullptr; //! Normalization set with for above integral
-  inline const RooArgSet* getNormSet() { return _normSet; }
 
   class CacheElem : public RooAbsCacheElement {
   public:
@@ -363,8 +350,6 @@ protected:
     RooAbsReal* _norm ;
   } ;
   mutable RooObjCacheManager _normMgr ; //! The cache manager
-
-  friend class CacheElem ; // Cache needs to be able to clear _norm pointer
 
   bool redirectServersHook(const RooAbsCollection&, bool, bool, bool) override {
     // Hook function intercepting redirectServer calls. Discard current normalization

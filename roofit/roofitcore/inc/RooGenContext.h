@@ -30,7 +30,7 @@ class RooAbsNumGenerator ;
 class RooGenContext : public RooAbsGenContext {
 public:
   RooGenContext(const RooAbsPdf &model, const RooArgSet &vars, const RooDataSet *prototype= 0,
-      const RooArgSet* auxProto=0, bool verbose=false, const RooArgSet* forceDirect=0);
+      const RooArgSet* auxProto=nullptr, bool verbose=false, const RooArgSet* forceDirect=nullptr);
   ~RooGenContext() override;
 
   void printMultiline(std::ostream &os, Int_t content, bool verbose=false, TString indent="") const override ;
@@ -50,7 +50,6 @@ protected:
   RooRealIntegral *_acceptRejectFunc; ///< Projection function to be passed to accept/reject sampler
   RooAbsNumGenerator *_generator;     ///< MC sampling generation engine
   RooRealVar *_maxVar ;               ///< Variable holding maximum value of p.d.f
-  TIterator *_uniIter ;               ///< Iterator over uniform observables
   Int_t _updateFMaxPerEvent ;         ///< If true, maximum p.d.f value needs to be recalculated for each event
 
   ClassDefOverride(RooGenContext,0) // Universal context for generating toy MC data from any p.d.f

@@ -33,7 +33,6 @@ but a not-normalized function (RooAbsReal)
 #include <math.h>
 
 #include "RooStepFunction.h"
-#include "RooAbsReal.h"
 #include "RooRealVar.h"
 #include "RooArgList.h"
 #include "RooMsgService.h"
@@ -108,9 +107,7 @@ double RooStepFunction::evaluate() const
   vector<double> b(_boundaryList.getSize()) ;
   vector<double> c(_coefList.getSize()+3) ;
   Int_t nb(0) ;
-  _boundIter->Reset() ;
-  RooAbsReal* boundary ;
-  while ((boundary=(RooAbsReal*)_boundIter->Next())) {
+  for (auto * boundary : static_range_cast<RooAbsReal*>(_boundaryList)) {
     b[nb++] = boundary->getVal() ;
   }
 
@@ -139,11 +136,9 @@ double RooStepFunction::evaluate() const
 
     // Make array of (0,coefficient values,0)
     Int_t nc(0) ;
-    _coefIter->Reset() ;
-    RooAbsReal* coef ;
-    vector<double> y(_coefList.getSize()+3) ;
+    vector<double> y(_coefList.size()+3) ;
     y[nc++] = 0 ;
-    while ((coef=(RooAbsReal*)_coefIter->Next())) {
+    for(auto * coef : static_range_cast<RooAbsReal*>(_coefList)) {
       y[nc++] = coef->getVal() ;
     }
     y[nc++] = 0 ;

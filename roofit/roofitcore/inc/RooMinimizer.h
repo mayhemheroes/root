@@ -73,12 +73,12 @@ public:
   int simplex() ;
   int improve() ;
 
-  int minimize(const char* type, const char* alg=0) ;
+  int minimize(const char* type, const char* alg=nullptr) ;
 
-  RooFitResult* save(const char* name=0, const char* title=0) ;
+  RooFitResult* save(const char* name=nullptr, const char* title=nullptr) ;
   RooPlot* contour(RooRealVar& var1, RooRealVar& var2,
-         double n1=1, double n2=2, double n3=0,
-         double n4=0, double n5=0, double n6=0, unsigned int npoints = 50) ;
+         double n1=1.0, double n2=2.0, double n3=0.0,
+         double n4=0.0, double n5=0.0, double n6=0.0, unsigned int npoints = 50) ;
 
   int setPrintLevel(int newLevel) ;
   void setPrintEvalErrors(int numEvalErrors) ;
@@ -100,7 +100,8 @@ public:
 
   int getPrintLevel() const { return _printLevel; }
 
-  void setMinimizerType(const char* type) ;
+  void setMinimizerType(std::string const& type) ;
+  std::string const& minimizerType() const { return _minimizerType; }
 
   static void cleanup() ;
   static RooFitResult* lastMinuitFit() ;
@@ -149,7 +150,8 @@ private:
   std::unique_ptr<TMatrixDSym> _extV;
 
   RooAbsMinimizerFcn *_fcn;
-  std::string _minimizerType = "Minuit";
+
+  std::string _minimizerType;
   FcnMode _fcnMode;
 
   static std::unique_ptr<ROOT::Fit::Fitter> _theFitter ;

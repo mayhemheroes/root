@@ -38,7 +38,6 @@
 class TTree ;
 class RooArgSet ;
 class RooAbsCollection ;
-class RooTreeDataStore ;
 class RooVectorDataStore ;
 class RooAbsData ;
 class RooAbsDataStore ;
@@ -78,13 +77,13 @@ public:
   RooAbsArg() ;
   ~RooAbsArg() override;
   RooAbsArg(const char *name, const char *title);
-  RooAbsArg(const RooAbsArg& other, const char* name=0) ;
-  RooAbsArg& operator=(const RooAbsArg& other);
-  virtual TObject* clone(const char* newname=0) const = 0 ;
+  RooAbsArg(const RooAbsArg& other, const char* name=nullptr) ;
+  RooAbsArg& operator=(const RooAbsArg& other) = delete;
+  virtual TObject* clone(const char* newname=nullptr) const = 0 ;
   TObject* Clone(const char* newname = 0) const override {
     return clone(newname && newname[0] != '\0' ? newname : nullptr);
   }
-  virtual RooAbsArg* cloneTree(const char* newname=0) const ;
+  virtual RooAbsArg* cloneTree(const char* newname=nullptr) const ;
 
   // Accessors to client-server relation information
 
@@ -99,7 +98,7 @@ public:
   /// @param serverList Test if one of the elements in this list serves values to `this`.
   /// @param ignoreArg Ignore values served by this object.
   /// @return True if values are served.
-  bool dependsOnValue(const RooAbsCollection& serverList, const RooAbsArg* ignoreArg=0) const {
+  bool dependsOnValue(const RooAbsCollection& serverList, const RooAbsArg* ignoreArg=nullptr) const {
     return dependsOn(serverList,ignoreArg,true) ;
   }
   /// Check whether this object depends on values served from the object passed as `server`.
@@ -107,11 +106,11 @@ public:
   /// @param server Test if `server` serves values to `this`.
   /// @param ignoreArg Ignore values served by this object.
   /// @return True if values are served.
-  bool dependsOnValue(const RooAbsArg& server, const RooAbsArg* ignoreArg=0) const {
+  bool dependsOnValue(const RooAbsArg& server, const RooAbsArg* ignoreArg=nullptr) const {
     return dependsOn(server,ignoreArg,true) ;
   }
-  bool dependsOn(const RooAbsCollection& serverList, const RooAbsArg* ignoreArg=0, bool valueOnly=false) const ;
-  bool dependsOn(const RooAbsArg& server, const RooAbsArg* ignoreArg=0, bool valueOnly=false) const ;
+  bool dependsOn(const RooAbsCollection& serverList, const RooAbsArg* ignoreArg=nullptr, bool valueOnly=false) const ;
+  bool dependsOn(const RooAbsArg& server, const RooAbsArg* ignoreArg=nullptr, bool valueOnly=false) const ;
   bool overlaps(const RooAbsArg& testArg, bool valueOnly=false) const ;
   bool hasClients() const { return !_clientList.empty(); }
 
@@ -228,9 +227,9 @@ public:
   inline bool isShapeServer(const char* name) const {
     return _clientListShape.containsSameName(name);
   }
-  void leafNodeServerList(RooAbsCollection* list, const RooAbsArg* arg=0, bool recurseNonDerived=false) const ;
-  void branchNodeServerList(RooAbsCollection* list, const RooAbsArg* arg=0, bool recurseNonDerived=false) const ;
-  void treeNodeServerList(RooAbsCollection* list, const RooAbsArg* arg=0,
+  void leafNodeServerList(RooAbsCollection* list, const RooAbsArg* arg=nullptr, bool recurseNonDerived=false) const ;
+  void branchNodeServerList(RooAbsCollection* list, const RooAbsArg* arg=nullptr, bool recurseNonDerived=false) const ;
+  void treeNodeServerList(RooAbsCollection* list, const RooAbsArg* arg=nullptr,
            bool doBranch=true, bool doLeaf=true,
            bool valueOnly=false, bool recurseNonDerived=false) const ;
 
@@ -246,7 +245,7 @@ public:
   /// Create a fundamental-type object that stores our type of value. The
   /// created object will have a valid value, but not necessarily the same
   /// as our value. The caller is responsible for deleting the returned object.
-  virtual RooAbsArg *createFundamental(const char* newname=0) const = 0;
+  virtual RooAbsArg *createFundamental(const char* newname=nullptr) const = 0;
 
   /// Is this argument an l-value, i.e., can it appear on the left-hand side
   /// of an assignment expression? LValues are also special since they can
@@ -293,9 +292,6 @@ public:
 
 
   // Parameter & observable interpretation of servers
-  friend class RooProdPdf ;
-  friend class RooAddPdf ;
-  friend class RooAddPdfOrig ;
   RooArgSet* getVariables(bool stripDisconnected=true) const ;
   RooArgSet* getParameters(const RooAbsData* data, bool stripDisconnected=true) const ;
   /// Return the parameters of this p.d.f when used in conjuction with dataset 'data'
@@ -362,6 +358,7 @@ public:
   }
 
   void setStringAttribute(const Text_t* key, const Text_t* value) ;
+  void removeStringAttribute(const Text_t* key) ;
   const Text_t* getStringAttribute(const Text_t* key) const ;
   inline const std::map<std::string,std::string>& stringAttributes() const {
     // Returns std::map<string,string> with all string attributes defined
@@ -537,9 +534,9 @@ public:
   void graphVizTree(const char* fileName, const char* delimiter="\n", bool useTitle=false, bool useLatex=false) ;
   void graphVizTree(std::ostream& os, const char* delimiter="\n", bool useTitle=false, bool useLatex=false) ;
 
-  void printComponentTree(const char* indent="",const char* namePat=0, Int_t nLevel=999) ;
-  void printCompactTree(const char* indent="",const char* fileName=0, const char* namePat=0, RooAbsArg* client=0) ;
-  void printCompactTree(std::ostream& os, const char* indent="", const char* namePat=0, RooAbsArg* client=0) ;
+  void printComponentTree(const char* indent="",const char* namePat=nullptr, Int_t nLevel=999) ;
+  void printCompactTree(const char* indent="",const char* fileName=nullptr, const char* namePat=nullptr, RooAbsArg* client=nullptr) ;
+  void printCompactTree(std::ostream& os, const char* indent="", const char* namePat=nullptr, RooAbsArg* client=nullptr) ;
   virtual void printCompactTreeHook(std::ostream& os, const char *ind="") ;
 
   // We want to support three cases here:
@@ -642,14 +639,9 @@ private:
  protected:
 
   // Client-Server relation and Proxy management
-  friend class RooArgSet ;
   friend class RooAbsCollection ;
-  friend class RooCustomizer ;
   friend class RooWorkspace ;
-  friend class RooExtendPdf ;
   friend class RooRealIntegral ;
-  friend class RooAbsReal ;
-  friend class RooProjectedPdf ;
   RefCountList_t _serverList       ; // list of server objects
   RefCountList_t _clientList; // list of client objects
   RefCountList_t _clientListShape; // subset of clients that requested shape dirty flag propagation
@@ -661,11 +653,9 @@ private:
 
 
   // Proxy management
-  friend class RooAddModel ;
   friend class RooArgProxy ;
   template<class RooCollection_t>
   friend class RooCollectionProxy;
-  friend class RooObjectFactory ;
   friend class RooHistPdf ;
   friend class RooHistFunc ;
   void registerProxy(RooArgProxy& proxy) ;
@@ -689,7 +679,7 @@ private:
   friend class RooVectorDataStore ;
   friend class RooDataSet ;
   friend class RooRealMPFE ;
-  virtual void syncCache(const RooArgSet* nset=0) = 0 ;
+  virtual void syncCache(const RooArgSet* nset=nullptr) = 0 ;
   virtual void copyCache(const RooAbsArg* source, bool valueOnly=false, bool setValDirty=true) = 0 ;
 
   virtual void attachToTree(TTree& t, Int_t bufSize=32000) = 0 ;
@@ -733,7 +723,6 @@ private:
 
   mutable bool _valueDirty ;  // Flag set if value needs recalculating because input values modified
   mutable bool _shapeDirty ;  // Flag set if value needs recalculating because input shapes modified
-  mutable bool _allBatchesDirty{true}; //! Mark batches as dirty (only meaningful for RooAbsReal).
 
   mutable OperMode _operMode ; // Dirty state propagation mode
   mutable bool _fast = false; // Allow fast access mode in getVal() and proxies
@@ -754,8 +743,8 @@ private:
 /*   RooArgSet _branchNodeCache //! Cached branch nodes     */
 
   mutable RooWorkspace *_myws; //! In which workspace do I live, if any
-  
-  std::size_t _dataToken; //! Set by the RooFitDriver for this arg to retrieve its result in the run context
+
+  std::size_t _dataToken = 0; //! Set by the RooFitDriver for this arg to retrieve its result in the run context
 
   /// \cond Internal
   // Legacy streamers need the following statics:

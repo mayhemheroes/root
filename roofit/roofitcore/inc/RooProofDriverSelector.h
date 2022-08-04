@@ -8,11 +8,10 @@
 #ifndef RooProofDriverSelector_h
 #define RooProofDriverSelector_h
 
-#include <TChain.h>
-#include <TFile.h>
 #include <TSelector.h>
+#include <TTree.h>
+
 class RooStudyPackage ;
-class TIterator ;
 
 class RooProofDriverSelector : public TSelector {
 public :
@@ -24,7 +23,7 @@ public :
    // List of branches
    TBranch        *b_i;   ///<!
 
-   RooProofDriverSelector(TTree * /*tree*/ =0) { b_i = 0 ; _pkg = 0 ; fChain = 0 ; }
+   RooProofDriverSelector(TTree * /*tree*/ =nullptr) { b_i = 0 ; _pkg = 0 ; fChain = 0 ; }
    ~RooProofDriverSelector() override { }
    Int_t   Version() const override { return 2; }
    void    SlaveBegin(TTree *tree) override;

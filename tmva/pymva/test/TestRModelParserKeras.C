@@ -1,5 +1,9 @@
 #include "KerasFunctionalModel.hxx"
 #include "KerasSequentialModel.hxx"
+#include "KerasBatchNormModel.hxx"
+#include "KerasConv2D_Valid.hxx"
+#include "KerasConv2D_Same.hxx"
+#include "KerasReshapeModel.hxx"
 
 #include <Python.h>
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
@@ -102,5 +106,172 @@ TEST(RModelParser_Keras, FUNCTIONAL)
     //Testing the actual and expected output tensor values
     for (size_t i = 0; i < outputFunctional.size(); ++i) {
       EXPECT_LE(std::abs(outputFunctional[i] - pOutputFunctional[i]), TOLERANCE);
+    }
+}
+
+TEST(RModelParser_Keras, BATCH_NORM)
+{
+    constexpr float TOLERANCE = DEFAULT_TOLERANCE;
+    float inputBatchNorm[]={0.22308163, 0.95274901, 0.44712538, 0.84640867,
+                             0.69947928, 0.29743695, 0.81379782, 0.39650574};
+    TMVA_SOFIE_KerasModelBatchNorm::Session s("KerasBatchNormModel.dat");
+    std::vector<float> outputBatchNorm = s.infer(inputBatchNorm);
+
+    Py_Initialize();
+    PyObject* main = PyImport_AddModule("__main__");
+    PyObject* fGlobalNS = PyModule_GetDict(main);
+    PyObject* fLocalNS = PyDict_New();
+    if (!fGlobalNS) {
+        throw std::runtime_error("Can't init global namespace for Python");
+        }
+    if (!fLocalNS) {
+        throw std::runtime_error("Can't init local namespace for Python");
+        }
+    PyRun_String("import os",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("from tensorflow.keras.models import load_model",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("import numpy",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("model=load_model('KerasModelBatchNorm.h5')",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("input=numpy.array([0.22308163, 0.95274901, 0.44712538, 0.84640867,"
+                                    "0.69947928, 0.29743695, 0.81379782, 0.39650574]).reshape(2,4)",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("output=model(input).numpy()",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("outputSize=output.size",Py_single_input,fGlobalNS,fLocalNS);
+    std::size_t pOutputBatchNormSize=(std::size_t)PyLong_AsLong(PyDict_GetItemString(fLocalNS,"outputSize"));
+
+    //Testing the actual and expected output tensor sizes
+    EXPECT_EQ(outputBatchNorm.size(), pOutputBatchNormSize);
+
+    PyArrayObject* pBatchNormValues=(PyArrayObject*)PyDict_GetItemString(fLocalNS,"output");
+    float* pOutputBatchNorm=(float*)PyArray_DATA(pBatchNormValues);
+
+    //Testing the actual and expected output tensor values
+    for (size_t i = 0; i < outputBatchNorm.size(); ++i) {
+      EXPECT_LE(std::abs(outputBatchNorm[i] - pOutputBatchNorm[i]), TOLERANCE);
+    }
+}
+
+TEST(RModelParser_Keras, CONV_VALID)
+{
+    constexpr float TOLERANCE = DEFAULT_TOLERANCE;
+    float inputConv2D_Valid[]= {1,1,1,1,
+                                1,1,1,1,
+                                1,1,1,1,
+                                1,1,1,1};
+    TMVA_SOFIE_KerasModelConv2D_Valid::Session s("KerasConv2D_Valid.dat");
+    std::vector<float> outputConv2D_Valid = s.infer(inputConv2D_Valid);
+
+    Py_Initialize();
+    PyObject* main = PyImport_AddModule("__main__");
+    PyObject* fGlobalNS = PyModule_GetDict(main);
+    PyObject* fLocalNS = PyDict_New();
+    if (!fGlobalNS) {
+        throw std::runtime_error("Can't init global namespace for Python");
+        }
+    if (!fLocalNS) {
+        throw std::runtime_error("Can't init local namespace for Python");
+        }
+    PyRun_String("import os",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("from tensorflow.keras.models import load_model",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("import numpy",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("model=load_model('KerasModelConv2D_Valid.h5')",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("input=numpy.ones((1,4,4,1))",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("output=model(input).numpy()",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("outputSize=output.size",Py_single_input,fGlobalNS,fLocalNS);
+    std::size_t pOutputConv2DValidSize=(std::size_t)PyLong_AsLong(PyDict_GetItemString(fLocalNS,"outputSize"));
+
+    //Testing the actual and expected output tensor sizes
+    EXPECT_EQ(outputConv2D_Valid.size(), pOutputConv2DValidSize);
+
+    PyArrayObject* pConv2DValidValues=(PyArrayObject*)PyDict_GetItemString(fLocalNS,"output");
+    float* pOutputConv2DValid=(float*)PyArray_DATA(pConv2DValidValues);
+
+    //Testing the actual and expected output tensor values
+    for (size_t i = 0; i < outputConv2D_Valid.size(); ++i) {
+      EXPECT_LE(std::abs(outputConv2D_Valid[i] - pOutputConv2DValid[i]), TOLERANCE);
+    }
+}
+
+TEST(RModelParser_Keras, CONV_SAME)
+{
+    constexpr float TOLERANCE = DEFAULT_TOLERANCE;
+    float inputConv2D_Same[]= {1,1,1,1,
+                                1,1,1,1,
+                                1,1,1,1,
+                                1,1,1,1};
+    TMVA_SOFIE_KerasModelConv2D_Same::Session s("KerasConv2D_Same.dat");
+    std::vector<float> outputConv2D_Same = s.infer(inputConv2D_Same);
+
+    Py_Initialize();
+    PyObject* main = PyImport_AddModule("__main__");
+    PyObject* fGlobalNS = PyModule_GetDict(main);
+    PyObject* fLocalNS = PyDict_New();
+    if (!fGlobalNS) {
+        throw std::runtime_error("Can't init global namespace for Python");
+        }
+    if (!fLocalNS) {
+        throw std::runtime_error("Can't init local namespace for Python");
+        }
+    PyRun_String("import os",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("from tensorflow.keras.models import load_model",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("import numpy",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("model=load_model('KerasModelConv2D_Same.h5')",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("input=numpy.ones((1,4,4,1))",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("output=model(input).numpy()",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("outputSize=output.size",Py_single_input,fGlobalNS,fLocalNS);
+    std::size_t pOutputConv2DSameSize=(std::size_t)PyLong_AsLong(PyDict_GetItemString(fLocalNS,"outputSize"));
+
+    //Testing the actual and expected output tensor sizes
+    EXPECT_EQ(outputConv2D_Same.size(), pOutputConv2DSameSize);
+
+    PyArrayObject* pConv2DSameValues=(PyArrayObject*)PyDict_GetItemString(fLocalNS,"output");
+    float* pOutputConv2DSame=(float*)PyArray_DATA(pConv2DSameValues);
+
+    //Testing the actual and expected output tensor values
+    for (size_t i = 0; i < outputConv2D_Same.size(); ++i) {
+      EXPECT_LE(std::abs(outputConv2D_Same[i] - pOutputConv2DSame[i]), TOLERANCE);
+    }
+}
+
+TEST(RModelParser_Keras, RESHAPE)
+{
+    constexpr float TOLERANCE = DEFAULT_TOLERANCE;
+    float inputReshape[]={1,1,1,1,
+                          1,1,1,1,
+                          1,1,1,1,
+                          1,1,1,1};
+    TMVA_SOFIE_KerasModelReshape::Session s("KerasReshapeModel.dat");
+    std::vector<float> outputReshape = s.infer(inputReshape);
+
+    Py_Initialize();
+    PyObject* main = PyImport_AddModule("__main__");
+    PyObject* fGlobalNS = PyModule_GetDict(main);
+    PyObject* fLocalNS = PyDict_New();
+    if (!fGlobalNS) {
+        throw std::runtime_error("Can't init global namespace for Python");
+        }
+    if (!fLocalNS) {
+        throw std::runtime_error("Can't init local namespace for Python");
+        }
+    PyRun_String("import os",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("from tensorflow.keras.models import load_model",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("import numpy",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("model=load_model('KerasModelReshape.h5')",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("input=numpy.ones((1,4,4,1))",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("output=model(input).numpy()",Py_single_input,fGlobalNS,fLocalNS);
+    PyRun_String("outputSize=output.size",Py_single_input,fGlobalNS,fLocalNS);
+    std::size_t pOutputReshapeSize=(std::size_t)PyLong_AsLong(PyDict_GetItemString(fLocalNS,"outputSize"));
+
+    //Testing the actual and expected output tensor sizes
+    EXPECT_EQ(outputReshape.size(), pOutputReshapeSize);
+
+    PyArrayObject* pReshapeValues=(PyArrayObject*)PyDict_GetItemString(fLocalNS,"output");
+    float* pOutputReshape=(float*)PyArray_DATA(pReshapeValues);
+
+    //Testing the actual and expected output tensor values
+    for (size_t i = 0; i < outputReshape.size(); ++i) {
+      EXPECT_LE(std::abs(outputReshape[i] - pOutputReshape[i]), TOLERANCE);
     }
 }

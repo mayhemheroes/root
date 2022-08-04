@@ -7,8 +7,6 @@
 #include <typeinfo>
 
 #include "RooStats/HistFactory/ParamHistFunc.h"
-#include "TIterator.h"
-#include "RooAbsArg.h"
 #include "RooAbsPdf.h"
 #include "RooArgSet.h"
 #include "RooArgList.h"
@@ -97,83 +95,6 @@ namespace HistFactory{
       }
    }
 
-  /*
-  void getChannelsFromModel( RooAbsPdf* model, RooArgSet* channels, RooArgSet* channelsWithConstraints ) {
-
-    // Loop through the model
-    // Find all channels
-
-    std::string modelClassName = model->ClassName();
-
-    if( modelClassName == std::string("RooSimultaneous") || model->InheritsFrom("RooSimultaneous") ) {
-
-      TIterator* simServerItr = model->serverIterator();
-
-      // Loop through the child nodes of the sim pdf
-      // and find the channel nodes
-      RooAbsArg* sim_channel_arg = nullptr;
-      while(( sim_channel = (RooAbsArg*) simServerItr->Next() )) {
-
-   RooAbsPdf* sim_channel = (RooAbsPdf*) sim_channel_arg;
-
-   // Ignore the Channel Cat
-   std::string channelPdfName = sim_channel->GetName();
-   std::string channelClassName = sim_channel->ClassName();
-   if( channelClassName == std::string("RooCategory") ) continue;
-
-   // If we got here, we found a channel.
-   // Format is model_<ChannelName>
-
-   std::string ChannelName = channelPdfName.substr(6, channelPdfName.size() );
-
-   // Now, get the RooRealSumPdf
-   RooAbsPdf* sum_pdf = getSumPdfFromChannel( sim_channel );
-
-
-   / *
-   // Now, get the RooRealSumPdf
-   // ie the channel WITHOUT constraints
-
-   std::string realSumPdfName = ChannelName + "_model";
-
-   RooAbsPdf* sum_pdf = nullptr;
-   TIterator* iter_sum_pdf = sim_channel->getComponents()->createIterator(); //serverIterator();
-   bool FoundSumPdf=false;
-   RooAbsArg* sum_pdf_arg=nullptr;
-   while((sum_pdf_arg=(RooAbsArg*)iter_sum_pdf->Next())) {
-
-     std::string NodeClassName = sum_pdf_arg->ClassName();
-     if( NodeClassName == std::string("RooRealSumPdf") ) {
-       FoundSumPdf=true;
-       sum_pdf = (RooAbsPdf*) sum_pdf_arg;
-       break;
-     }
-   }
-   if( ! FoundSumPdf ) {
-     std::cout << "Failed to find RooRealSumPdf for channel: " << sim_channel->GetName() << std::endl;
-     sim_channel->getComponents()->Print("V");
-     throw std::runtime_error("Failed to find RooRealSumPdf for channel");
-   }
-   delete iter_sum_pdf;
-   iter_sum_pdf = nullptr;
-   * /
-
-   // Okay, now add to the arg sets
-   channels->add( *sum_pdf );
-   channelsWithConstraints->add( *sim_channel );
-
-      }
-
-      delete simServerItr;
-
-    }
-    else {
-      std::cout << "Model is not a RooSimultaneous or doesn't derive from one." << std::endl;
-      std::cout << "HistFactoryModelUtils isn't yet implemented for these pdf's" << std::endl;
-    }
-
-  }
-  */
 
   bool getStatUncertaintyFromChannel( RooAbsPdf* channel, ParamHistFunc*& paramfunc, RooArgList* gammaList ) {
 
@@ -266,15 +187,18 @@ namespace HistFactory{
       // get num events expected in bin for obsVal
       // double nu = expected * fracAtObsValue;
 
-      // an easier way to get n
-      TH1* histForN = dataForChan->createHistogram("HhstForN",*obs);
-      for(int i=1; i<=histForN->GetNbinsX(); ++i){
-   double n = histForN->GetBinContent(i);
-   if(verbose) std::cout << "n" <<  i << " = " << n  << std::endl;
-   ChannelBinDataMap[ ChannelName ].push_back( n );
-      }
-      delete histForN;
-
+      // multidimensional way to get n
+      // credit goes to P. Hamilton
+      for (int i = 0; i < dataForChan->numEntries(); i++) {
+        const RooArgSet *tmpargs = dataForChan->get(i);
+         if (verbose)
+           tmpargs->Print();
+         const double n = dataForChan->weight();
+         if (verbose)
+           std::cout << "n" << i << " = " << n << std::endl;
+         ChannelBinDataMap[ChannelName].push_back(n);
+       }
+      
     } // End Loop Over Categories
 
     dataByCategory->Delete();
@@ -328,9 +252,7 @@ namespace HistFactory{
     // Find the "data" of the poisson term
     // This is the nominal value
     bool FoundNomMean=false;
-    TIter iter_pois = constraintTerm->serverIterator(); //constraint_args
-    RooAbsArg* term_pois ;
-    while((term_pois=(RooAbsArg*)iter_pois.Next())) {
+    for (RooAbsArg * term_pois : constraintTerm->servers()) {
       std::string serverName = term_pois->GetName();
       //std::cout << "Checking Server: " << serverName << std::endl;
       if( serverName.find("nom_")!=std::string::npos ) {
@@ -350,18 +272,14 @@ namespace HistFactory{
     // Taking the constraint term (a Poisson), find
     // the "mean" which is the product: gamma*tau
     // Then, from that mean, find tau
-    TIter iter_constr = constraintTerm->serverIterator(); //constraint_args
-    RooAbsArg* pois_mean_arg=nullptr;
-    bool FoundPoissonMean = false;
-    while(( pois_mean_arg = (RooAbsArg*) iter_constr.Next() )) {
-      std::string serverName = pois_mean_arg->GetName();
-      if( pois_mean_arg->dependsOn( *gamma_stat ) ) {
-   FoundPoissonMean=true;
-   // pois_mean = (RooAbsReal*) pois_mean_arg;
-   break;
+    RooAbsArg * pois_mean_arg = nullptr;
+    for (RooAbsArg * arg : constraintTerm->servers()) {
+      if( arg->dependsOn( *gamma_stat ) ) {
+        pois_mean_arg = arg;
+        break;
       }
     }
-    if( !FoundPoissonMean || !pois_mean_arg ) {
+    if( !pois_mean_arg ) {
       std::cout << "Error: Did not find PoissonMean parameter in gamma constraint term: "
       << constraintTerm->GetName() << std::endl;
       throw std::runtime_error("Failed to find PoissonMean");
@@ -371,10 +289,8 @@ namespace HistFactory{
       if(verbose) std::cout << "Found Poisson 'mean' term: " << pois_mean_arg->GetName() << std::endl;
     }
 
-    TIter iter_product = pois_mean_arg->serverIterator(); //constraint_args
-    RooAbsArg* term_in_product ;
     bool FoundTau=false;
-    while((term_in_product=(RooAbsArg*)iter_product.Next())) {
+    for(RooAbsArg* term_in_product : pois_mean_arg->servers()) {
       std::string serverName = term_in_product->GetName();
       //std::cout << "Checking Server: " << serverName << std::endl;
       if( serverName.find("_tau")!=std::string::npos ) {

@@ -21,11 +21,28 @@
 #include <RooMinimizer.h>
 #include <RooUnitTest.h>
 
+#include <TFile.h>
+
 #include <gtest/gtest.h>
 
 #include <memory>
 
 using namespace RooFit;
+
+class Environment : public testing::Environment {
+public:
+   void SetUp() override {
+      RooMsgService::instance().setGlobalKillBelow(RooFit::ERROR);
+      ROOT::Math::MinimizerOptions::SetDefaultMinimizer("Minuit2");
+   }
+};
+
+int main(int argc, char **argv)
+{
+   testing::InitGoogleTest(&argc, argv);
+   testing::AddGlobalTestEnvironment(new Environment);
+   return RUN_ALL_TESTS();
+}
 
 class TestRooRealLPlot : public RooUnitTest {
 public:
@@ -57,7 +74,6 @@ public:
       RooFit::MultiProcess::Config::setDefaultNWorkers(nWorkers);
       RooMinimizer m(likelihood, RooFit::TestStatistics::LikelihoodMode::serial,
                      RooFit::TestStatistics::LikelihoodGradientMode::multiprocess);
-      m.setMinimizerType("Minuit2");
 
       // Minimize
       m.migrad();
