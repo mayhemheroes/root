@@ -8,13 +8,23 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#include <algorithm>
-#include <stdexcept>
-
 #include "ROOT/RDataFrame.hxx"
 #include "ROOT/RDataSource.hxx"
+#include "ROOT/RDF/RDatasetSpec.hxx"
+#include "ROOT/RDF/RInterface.hxx"
+#include "ROOT/RDF/RLoopManager.hxx"
+#include "ROOT/RDF/Utils.hxx"
+#include "ROOT/RStringView.hxx"
 #include "TChain.h"
 #include "TDirectory.h"
+#include "RtypesCore.h" // for ULong64_t
+#include "TTree.h"
+
+#include <memory>  // for make_shared, allocator, shared_ptr
+#include <ostream> // ostringstream
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 // clang-format off
 /**
@@ -66,7 +76,7 @@ You can directly see RDataFrame in action in our [tutorials](https://root.cern.c
    - [User-defined custom actions](\ref generic-actions)
    - [Friend trees](\ref friends)
    - [Reading data formats other than ROOT trees](\ref other-file-formats)
-   - [Computation graphs (storing and reusing sets of transformations](\ref callgraphs)
+   - [Computation graphs (storing and reusing sets of transformations)](\ref callgraphs)
    - [Visualizing the computation graph](\ref representgraph)
    - [Activating RDataFrame execution logs](\ref rdf-logging)
 - [Efficient analysis in Python](\ref python)
@@ -574,6 +584,31 @@ Actions can be **instant** or **lazy**. Instant actions are executed as soon as 
 executed whenever the object they return is accessed for the first time. As a rule of thumb, actions with a return value
 are lazy, the others are instant.
 
+### Return type of a lazy action
+
+When a lazy action is called, it returns a \link ROOT::RDF::RResultPtr ROOT::RDF::RResultPtr<T>\endlink, where T is the
+type of the result of the action. The final result will be stored in the `RResultPtr` and can be retrieved by
+dereferencing it or via its `GetValue` method.
+
+### Actions that return collections
+
+If the type of the return value of an action is a collection, e.g. `std::vector<int>`, you can iterate its elements
+directly through the wrapping `RResultPtr`:
+
+~~~{.cpp}
+ROOT::RDataFrame df{5};
+auto df1 = df.Define("x", []{ return 42; });
+for (const auto &el: df1.Take<int>("x")){
+   std::cout << "Element: " << el << "\n";
+}
+~~~
+
+~~~{.py}
+df = ROOT.RDataFrame(5).Define("x", "42")
+for el in df.Take[int]("x"):
+    print(f"Element: {el}")
+~~~
+
 \anchor distrdf
 ## Distributed execution
 
@@ -602,7 +637,7 @@ h.Draw()
 ~~~
 
 The main goal of this package is to support running any RDataFrame application distributedly. Nonetheless, not all
-RDataFrame operations currently work with this package. The subset that is currently available is:
+parts of the RDataFrame API currently work with this package. The subset that is currently available is:
 - AsNumpy
 - Count
 - Define
@@ -619,6 +654,8 @@ RDataFrame operations currently work with this package. The subset that is curre
 - Redefine
 - Snapshot
 - Sum
+- Systematic variations: Vary and [VariationsFor](\ref ROOT::RDF::Experimental::VariationsFor).
+- Parallel submission of distributed graphs: [RunGraphs](\ref ROOT::RDF::RunGraphs).
 
 with support for more operations coming in the future. Data sources other than TTree and TChain (e.g. CSV, RNTuple) are
 currently not supported.
@@ -995,9 +1032,6 @@ auto maybeRangedDF = MaybeAddRange(df, true);
 The conversion to ROOT::RDF::RNode is cheap, but it will introduce an extra virtual call during the RDataFrame event
 loop (in most cases, the resulting performance impact should be negligible). Python users can perform the conversion with the helper function `ROOT.RDF.AsRNode`.
 
-As a final note, remember that RDataFrame actions do not return another dataframe, but a \link ROOT::RDF::RResultPtr ROOT::RDF::RResultPtr<T>\endlink, where T is the
-type of the result of the action.
-
 \anchor RDFCollections
 ### Storing RDataFrame objects in collections
 
@@ -1296,6 +1330,9 @@ import ROOT
 
 verbosity = ROOT.Experimental.RLogScopedVerbosity(ROOT.Detail.RDF.RDFLogChannel(), ROOT.Experimental.ELogLevel.kInfo)
 ~~~
+
+More information (e.g. start and end of each multi-thread task) is printed using `ELogLevel.kDebug` and even more
+(e.g. a full dump of the generated code that RDataFrame just-in-time-compiles) using `ELogLevel.kDebug+10`.
 */
 // clang-format on
 
@@ -1346,9 +1383,9 @@ RDataFrame::RDataFrame(std::string_view treeName, std::string_view filenameglob,
 {
    const std::string treeNameInt(treeName);
    const std::string filenameglobInt(filenameglob);
-   auto chain = std::make_shared<TChain>(treeNameInt.c_str());
+   auto chain = std::make_shared<TChain>(treeNameInt.c_str(), "", TChain::kWithoutGlobalRegistration);
    chain->Add(filenameglobInt.c_str());
-   GetProxiedPtr()->SetTree(chain);
+   GetProxiedPtr()->SetTree(std::move(chain));
 }
 
 ////////////////////////////////////////////////////////////////////////////
@@ -1367,10 +1404,10 @@ RDataFrame::RDataFrame(std::string_view treeName, const std::vector<std::string>
    : RInterface(std::make_shared<RDFDetail::RLoopManager>(nullptr, defaultColumns))
 {
    std::string treeNameInt(treeName);
-   auto chain = std::make_shared<TChain>(treeNameInt.c_str());
+   auto chain = std::make_shared<TChain>(treeNameInt.c_str(), "", TChain::kWithoutGlobalRegistration);
    for (auto &f : fileglobs)
       chain->Add(f.c_str());
-   GetProxiedPtr()->SetTree(chain);
+   GetProxiedPtr()->SetTree(std::move(chain));
 }
 
 ////////////////////////////////////////////////////////////////////////////

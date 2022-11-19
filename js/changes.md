@@ -1,8 +1,44 @@
 # JSROOT changelog
 
 ## Changes in dev
+1. Force MathJax rendering when `\` symbol is found (#243)
+2. Fix - show correct bin index in TH2 tooltips
+3. Mark methods returning `Promise` objects as **async**
+4. Fix several bugs in csg.mjs
+5. Upgrade three.js to r146
+6. Improve geometry clipping
+7. 3-dimensional TTree::Draw now produces TPolyMarker3D by default
+8. Fix - interactive move/resize on touch devices
+9. Provide `settings.PreferSavedPoints` to exclude function evaluation when there are saved points
+10. Improve TWebCanvas support
+11. Correctly handle axis zooming on lego plots
+
+
+## Changes in 7.2.1
+1. Fix - prevent glitch when enabling projection via context menu
+2. Fix - `multi.json` request parsing
+3. Fix - decoding of multipart message (#250)
+4. Fix - use alpha channel for TColor when intended
+5. Backport `settings.PreferSavedPoints` only for `TF1`
+
+
+## Changes in 7.2.0
 1. Use TAxis attributes in lego plots - ticks/labels/title colors, sizes, offsets
 2. Correctly resize stats box when number of lines changes
+3. Support JSROOT usage with yarn and webpack
+4. Provide `FileProxy` class to let read ROOT files from arbitrary place
+5. Let 'hook' save file functionality to use alternative method to store image files
+6. Implement 'tabs' layout for objects display (#238)
+7. Upgrade d3.js to version 7.6.1
+8. Fix - adjust pad margins when moving palette and frame
+
+
+## Changes in 7.1.1
+1. Fix - let modify node visibility bits via context menu
+2. Fix - menu position adjusting
+3. Fix - tree_draw.js example, export treeDraw function from main.mjs
+4. Fix - TH3 scatter plot with large number of bins converted to box2
+5. Fix - create geo css entries also when expand object in hierarchy (#240)
 
 
 ## Changes in 7.1.0

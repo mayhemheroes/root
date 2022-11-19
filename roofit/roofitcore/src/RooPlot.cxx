@@ -189,9 +189,8 @@ RooPlot::RooPlot(const char* name, const char* title, const RooAbsRealLValue &va
   _hist->GetSumw2()->Set(0) ;
   _hist->SetDirectory(nullptr);
 
-  // plotVar can be a composite in case of a RooDataSet::plot, need deepClone
-  _plotVarSet = (RooArgSet*) RooArgSet(var).snapshot() ;
-  _plotVarClone= (RooAbsRealLValue*)_plotVarSet->find(var.GetName()) ;
+  // In the past, the plot variable was cloned, but there was no apparent reason for doing so.
+  _plotVar = const_cast<RooAbsRealLValue*>(&var);
 
   TString xtitle= var.getTitle(true);
   SetXTitle(xtitle.Data());
@@ -213,9 +212,8 @@ RooPlot::RooPlot(const RooAbsRealLValue &var, double xmin, double xmax, Int_t nb
   _hist->GetSumw2()->Set(0) ;
   _hist->SetDirectory(nullptr);
 
-  // plotVar can be a composite in case of a RooDataSet::plot, need deepClone
-  _plotVarSet = (RooArgSet*) RooArgSet(var).snapshot() ;
-  _plotVarClone= (RooAbsRealLValue*)_plotVarSet->find(var.GetName()) ;
+  // In the past, the plot variable was cloned, but there was no apparent reason for doing so.
+  _plotVar = const_cast<RooAbsRealLValue*>(&var);
 
   TString xtitle= var.getTitle(true);
   SetXTitle(xtitle.Data());
@@ -265,9 +263,8 @@ RooPlot* RooPlot::frameWithLabels(const RooAbsRealLValue &var){
     pl->_hist->GetXaxis()->SetBinLabel(i+1,s);
   }
 
-  // plotVar can be a composite in case of a RooDataSet::plot, need deepClone
-  pl->_plotVarSet = (RooArgSet*) RooArgSet(var).snapshot() ;
-  pl->_plotVarClone= (RooAbsRealLValue*)pl->_plotVarSet->find(var.GetName()) ;
+  // In the past, the plot variable was cloned, but there was no apparent reason for doing so.
+  pl->_plotVar = const_cast<RooAbsRealLValue*>(&var);
 
   TString xtitle= var.getTitle(true);
   pl->SetXTitle(xtitle.Data());
@@ -287,7 +284,7 @@ RooPlot* RooPlot::frameWithLabels(const RooAbsRealLValue &var){
 
 RooPlot* RooPlot::emptyClone(const char* name)
 {
-  RooPlot* clone = new RooPlot(*_plotVarClone,_hist->GetXaxis()->GetXmin(),_hist->GetXaxis()->GetXmax(),_hist->GetNbinsX()) ;
+  RooPlot* clone = new RooPlot(*_plotVar,_hist->GetXaxis()->GetXmin(),_hist->GetXaxis()->GetXmax(),_hist->GetNbinsX()) ;
   clone->SetName(name) ;
   return clone ;
 }
@@ -320,8 +317,8 @@ void RooPlot::initialize()
 
 TString RooPlot::histName() const
 {
-  if (_plotVarClone) {
-    return TString(Form("frame_%s_%zx",_plotVarClone->GetName(),(size_t)this)) ;
+  if (_plotVar) {
+    return TString(Form("frame_%s_%zx",_plotVar->GetName(),(size_t)this)) ;
   } else {
     return TString(Form("frame_%zx",(size_t)this)) ;
   }
@@ -372,36 +369,6 @@ void RooPlot::updateNormVars(const RooArgSet &vars)
 {
   if(0 == _normVars) _normVars= (RooArgSet*) vars.snapshot(true);
 }
-
-
-////////////////////////////////////////////////////////////////////////////////
-/// A plot object is a frame without any bin contents of its own so this
-/// method always returns zero.
-
-Stat_t RooPlot::GetBinContent(Int_t /*i*/) const {
-  return 0;
-}
-
-
-////////////////////////////////////////////////////////////////////////////////
-/// A plot object is a frame without any bin contents of its own so this
-/// method always returns zero.
-
-Stat_t RooPlot::GetBinContent(Int_t, Int_t) const
-{
-  return 0;
-}
-
-
-////////////////////////////////////////////////////////////////////////////////
-/// A plot object is a frame without any bin contents of its own so this
-/// method always returns zero.
-
-Stat_t RooPlot::GetBinContent(Int_t, Int_t, Int_t) const
-{
-  return 0;
-}
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -575,9 +542,9 @@ void RooPlot::addPlotable(RooPlotable *plotable, Option_t *drawOptions, bool inv
     // if the frame axis is alphanumeric, the coordinates of the graph need to be translated to this binning
     if(_hist->GetXaxis()->IsAlphanumeric()){
       if(obj->InheritsFrom(RooCurve::Class())){
-        ::translateGraph(_hist,_plotVarClone,static_cast<RooCurve*>(obj));
+        ::translateGraph(_hist,_plotVar,static_cast<RooCurve*>(obj));
       } else if(obj->InheritsFrom(RooHist::Class())){
-        ::translateGraph(_hist,_plotVarClone,static_cast<RooHist*>(obj));
+        ::translateGraph(_hist,_plotVar,static_cast<RooHist*>(obj));
       }
     }
 
@@ -740,9 +707,9 @@ void RooPlot::printClassName(ostream& os) const
 
 void RooPlot::printArgs(ostream& os) const
 {
-  if (_plotVarClone) {
+  if (_plotVar) {
     os << "[" ;
-    _plotVarClone->printStream(os,kName,kInline) ;
+    _plotVar->printStream(os,kName,kInline) ;
     os << "]" ;
   }
 }
@@ -784,9 +751,9 @@ void RooPlot::printMultiline(ostream& os, Int_t /*content*/, bool verbose, TStri
 {
   TString deeper(indent);
   deeper.Append("    ");
-  if(0 != _plotVarClone) {
+  if(0 != _plotVar) {
     os << indent << "RooPlot " << GetName() << " (" << GetTitle() << ") plots variable ";
-    _plotVarClone->printStream(os,kName|kTitle,kSingleLine,"");
+    _plotVar->printStream(os,kName|kTitle,kSingleLine,"");
   }
   else {
     os << indent << "RooPlot " << GetName() << " (" << GetTitle() << ") has no associated plot variable" << endl ;
@@ -1145,26 +1112,62 @@ double RooPlot::chiSquare(const char* curvename, const char* histname, int nFitP
 /// Otherwise, the curve is evaluated at the bin centres, which is not accurate for strongly curved distributions.
 RooHist* RooPlot::residHist(const char* histname, const char* curvename, bool normalize, bool useAverage) const
 {
-  // Find curve object
-  RooCurve* curve = (RooCurve*) findObject(curvename,RooCurve::Class()) ;
-  if (!curve) {
-    coutE(InputArguments) << "RooPlot::residHist(" << GetName() << ") cannot find curve" << endl ;
-    return 0 ;
+  // Find all curve objects with the name "curvename" or the name of the last
+  // plotted curve (there might be multiple in the case of multi-range fits).
+  std::vector<RooCurve *> curves;
+
+  for(auto it = _items.rbegin(); it != _items.rend(); ++it) {
+    TObject &obj = *it->first;
+    if(obj.IsA() == RooCurve::Class()) {
+      // If no curvename was passed, we take by default the last curve and all
+      // other curves that have the same name
+      if((!curvename || curvename[0] == '\0') || std::string(curvename) == obj.GetName()) {
+        curvename = obj.GetName();
+        curves.push_back(static_cast<RooCurve*>(&obj));
+      }
+    }
+  }
+
+  if (curves.empty()) {
+    coutE(InputArguments) << "RooPlot::residHist(" << GetName() << ") cannot find curve" << std::endl;
+    return nullptr;
   }
 
   // Find histogram object
-  RooHist* hist = (RooHist*) findObject(histname,RooHist::Class()) ;
+  auto hist = static_cast<RooHist*>(findObject(histname,RooHist::Class()));
   if (!hist) {
-    coutE(InputArguments) << "RooPlot::residHist(" << GetName() << ") cannot find histogram" << endl ;
-    return 0 ;
+    coutE(InputArguments) << "RooPlot::residHist(" << GetName() << ") cannot find histogram" << std::endl;
+    return nullptr;
   }
 
-  auto residhist = hist->makeResidHist(*curve,normalize,useAverage);
-  residhist->GetHistogram()->GetXaxis()->SetRangeUser(_hist->GetXaxis()->GetXmin(), _hist->GetXaxis()->GetXmax());
-  residhist->GetHistogram()->GetXaxis()->SetTitle(_hist->GetXaxis()->GetTitle());
-  residhist->GetHistogram()->GetYaxis()->SetTitle(normalize ? "(Data - curve) / #sigma_{data}" : "Data - curve");
+  auto residHist = hist->createEmptyResidHist(*curves.front(), normalize);
 
-  return residhist;
+  // We consider all curves with the same name as long as the ranges don't
+  // overlap, to create also the full residual plot in multi-range fits.
+  std::vector<std::pair<double, double>> coveredRanges;
+  for(RooCurve * curve : curves) {
+    const double xmin = curve->GetPointX(0);
+    const double xmax = curve->GetPointX(curve->GetN() - 1);
+
+    for(auto const& prevRange : coveredRanges) {
+      const double pxmin = prevRange.first;
+      const double pxmax = prevRange.second;
+      // If either xmin or xmax is within any previous range, the ranges
+      // overloap and it makes to sense to also consider this curve for the
+      // residuals (i.e., they can't come from a multi-range fit).
+      if((pxmax > xmin && pxmin <= xmin) || (pxmax > xmax && pxmin <= xmax)) {
+        continue;
+      }
+    }
+
+    coveredRanges.emplace_back(xmin, xmax);
+
+    hist->fillResidHist(*residHist, *curve, normalize, useAverage);
+  }
+  residHist->GetHistogram()->GetXaxis()->SetRangeUser(_hist->GetXaxis()->GetXmin(), _hist->GetXaxis()->GetXmax());
+  residHist->GetHistogram()->GetXaxis()->SetTitle(_hist->GetXaxis()->GetTitle());
+  residHist->GetHistogram()->GetYaxis()->SetTitle(normalize ? "(Data - curve) / #sigma_{data}" : "Data - curve");
+  return residHist.release();
 }
 
 
@@ -1396,7 +1399,7 @@ void RooPlot::Streamer(TBuffer &R__b)
         RooPlot::fillItemsFromTList(_items, itemsList);
       }
       R__b >> _padFactor;
-      R__b >> _plotVarClone;
+      R__b >> _plotVar;
       R__b >> _plotVarSet;
       R__b >> _normVars;
       R__b >> _normNumEvts;

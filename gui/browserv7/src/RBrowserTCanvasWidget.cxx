@@ -92,7 +92,7 @@ public:
       fCanvas->SetBatch(kTRUE); // mark canvas as batch
       fCanvas->SetEditable(kTRUE); // ensure fPrimitives are created
 
-      Bool_t readonly = gEnv->GetValue("WebGui.FullCanvas", (Int_t) 0) == 0;
+      Bool_t readonly = gEnv->GetValue("WebGui.FullCanvas", (Int_t) 1) == 0;
 
       // create implementation
       fWebCanvas = new TWebCanvas(fCanvas.get(), "title", 0, 0, 800, 600, readonly);
@@ -111,7 +111,7 @@ public:
       fCanvas = std::move(canv);
       fCanvas->SetBatch(kTRUE); // mark canvas as batch
 
-      Bool_t readonly = gEnv->GetValue("WebGui.FullCanvas", (Int_t) 0) == 0;
+      Bool_t readonly = gEnv->GetValue("WebGui.FullCanvas", (Int_t) 1) == 0;
 
       // create implementation
       fWebCanvas = new TWebCanvas(fCanvas.get(), "title", 0, 0, 800, 600, readonly);
@@ -161,7 +161,7 @@ public:
       return fCanvas->GetName();
    }
 
-   bool DrawElement(std::shared_ptr<Browsable::RElement> &elem, const std::string &opt, bool append) override
+   bool DrawElement(std::shared_ptr<Browsable::RElement> &elem, const std::string &opt = "") override
    {
       if (!elem->IsCapable(Browsable::RElement::kActDraw6))
          return false;
@@ -170,13 +170,20 @@ public:
       if (!obj)
          return false;
 
-      if (!append) {
+      std::string drawopt = opt;
+
+      if (drawopt.compare(0,8,"<append>") == 0) {
+         drawopt.erase(0,8);
+      } else {
          fCanvas->GetListOfPrimitives()->Clear();
          fObjects.clear();
          fCanvas->Range(0,0,1,1);  // set default range
       }
 
-      if (Browsable::RProvider::Draw6(fCanvas.get(), obj, opt)) {
+      if (drawopt == "<dflt>")
+         drawopt = Browsable::RProvider::GetClassDrawOption(obj->GetClass());
+
+      if (Browsable::RProvider::Draw6(fCanvas.get(), obj, drawopt)) {
          fObjects.emplace_back(std::move(obj));
          fCanvas->ForceUpdate();
          return true;

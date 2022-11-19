@@ -60,6 +60,7 @@ class TPadWebSnapshot : public TWebSnapshot {
 protected:
    bool fActive{false};                                    ///< true when pad is active
    bool fReadOnly{true};                                   ///< when canvas or pad are in readonly mode
+   bool fWithoutPrimitives{false};                         ///< true when primitives not send while there are no modifications
    std::vector<std::unique_ptr<TWebSnapshot>> fPrimitives; ///< list of all primitives, drawn in the pad
 
 public:
@@ -71,6 +72,8 @@ public:
 
    void SetActive(bool on = true) { fActive = on; }
 
+   void SetWithoutPrimitives(bool on = true) { fWithoutPrimitives = on; }
+
    bool IsReadOnly() const { return fReadOnly; }
 
    TWebSnapshot &NewPrimitive(TObject *obj = nullptr, const std::string &opt = "");
@@ -79,21 +82,18 @@ public:
 
    TWebSnapshot &NewSpecials();
 
-   ClassDef(TPadWebSnapshot, 1) // Pad painting snapshot, used for JSROOT
+   ClassDef(TPadWebSnapshot, 2) // Pad painting snapshot, used for JSROOT
 };
 
 // =================================================================================
 
 class TCanvasWebSnapshot : public TPadWebSnapshot {
 protected:
-   Long64_t fVersion{0};           ///< actual canvas version
    std::string fScripts;           ///< custom scripts to load
    bool fHighlightConnect{false};  ///< does HighlightConnect has connection
 public:
    TCanvasWebSnapshot() {} // NOLINT: not allowed to use = default because of TObject::kIsOnHeap detection, see ROOT-10300
-   TCanvasWebSnapshot(bool readonly, Long64_t v) : TPadWebSnapshot(readonly), fVersion(v) {}
-
-   Long64_t GetVersion() const { return fVersion; }
+   TCanvasWebSnapshot(bool readonly) : TPadWebSnapshot(readonly) {}
 
    void SetScripts(const std::string &src) { fScripts = src; }
    const std::string &GetScripts() const { return fScripts; }
@@ -101,7 +101,7 @@ public:
    void SetHighlightConnect(bool on = true) { fHighlightConnect = on; }
    bool GetHighlightConnect() const { return fHighlightConnect; }
 
-   ClassDef(TCanvasWebSnapshot, 2) // Canvas painting snapshot, used for JSROOT
+   ClassDef(TCanvasWebSnapshot, 3) // Canvas painting snapshot, used for JSROOT
 };
 
 

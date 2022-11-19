@@ -19,6 +19,7 @@
 #include "RooAbsReal.h"
 #include "RooObjCacheManager.h"
 #include "RooCmdArg.h"
+#include "RooFit/UniqueId.h"
 
 class RooDataSet;
 class RooDataHist ;
@@ -75,7 +76,7 @@ public:
   class GenSpec {
   public:
     virtual ~GenSpec() ;
-    GenSpec() { _genContext = 0 ; _protoData = 0 ; _init = false ; _extended=false, _nGen=0 ; _randProto = false ; _resampleProto=false ; }
+    GenSpec() { _genContext = nullptr ; _protoData = nullptr ; _init = false ; _extended=false, _nGen=0 ; _randProto = false ; _resampleProto=false ; }
   private:
     GenSpec(RooAbsGenContext* context, const RooArgSet& whatVars, RooDataSet* protoData, Int_t nGen, bool extended,
        bool randProto, bool resampleProto, TString dsetName, bool init=false) ;
@@ -184,6 +185,9 @@ public:
       int doWarn = 1;
       int doSumW2 = -1;
       int doAsymptotic = -1;
+      int nWorkers = 1;
+      bool parallelGradient = false;
+      bool parallelLikelihood = false;
       const RooArgSet* minosSet = nullptr;
       std::string minType;
       std::string minAlg = "minuit";
@@ -208,11 +212,14 @@ public:
 
 
   // Constraint management
-  virtual RooArgSet* getConstraints(const RooArgSet& /*observables*/, RooArgSet& /*constrainedParams*/, bool /*stripDisconnected*/) const {
+  virtual RooArgSet* getConstraints(const RooArgSet& /*observables*/, RooArgSet& /*constrainedParams*/,
+                                    bool /*stripDisconnected*/, bool /*removeConstraintsFromPdf*/=false) const
+  {
     // Interface to retrieve constraint terms on this pdf. Default implementation returns null
-    return 0 ;
+    return nullptr ;
   }
-  virtual RooArgSet* getAllConstraints(const RooArgSet& observables, RooArgSet& constrainedParams, bool stripDisconnected=true) const ;
+  RooArgSet* getAllConstraints(const RooArgSet& observables, RooArgSet& constrainedParams,
+                               bool stripDisconnected=true, bool removeConstraintsFromPdf=false) const ;
 
   // Project p.d.f into lower dimensional p.d.f
   virtual RooAbsPdf* createProjection(const RooArgSet& iset) ;
@@ -291,11 +298,11 @@ public:
 
   void setNormRange(const char* rangeName) ;
   const char* normRange() const {
-    return _normRange.Length()>0 ? _normRange.Data() : 0 ;
+    return _normRange.Length()>0 ? _normRange.Data() : nullptr ;
   }
   void setNormRangeOverride(const char* rangeName) ;
 
-  const RooAbsReal* getNormIntegral(const RooArgSet& nset) const { return getNormObj(0,&nset,0) ; }
+  const RooAbsReal* getNormIntegral(const RooArgSet& nset) const { return getNormObj(nullptr,&nset,nullptr) ; }
 
   virtual const RooAbsReal* getNormObj(const RooArgSet* set, const RooArgSet* iset, const TNamed* rangeName=nullptr) const ;
 
@@ -321,8 +328,23 @@ private:
   void logBatchComputationErrors(RooSpan<const double>& outputs, std::size_t begin) const;
   bool traceEvalPdf(double value) const;
 
+  /// Setter for the _normSet member, which should never be set directly.
+  inline void setActiveNormSet(RooArgSet const* normSet) const {
+    _normSet = normSet;
+    // Also store the unique ID of the _normSet. This makes it possible to
+    // detect if the pointer was invalidated.
+    _normSetId = RooFit::getUniqueId(normSet);
+  }
 
 protected:
+
+  /// Checks if `normSet` is the currently active normalization set of this
+  /// PDF, meaning is exactly the same object as the one the `_normSet` member
+  /// points to (or both are `nullptr`).
+  inline bool isActiveNormSet(RooArgSet const* normSet) const {
+    return RooFit::getUniqueId(normSet).value() == _normSetId;
+  }
+
   double normalizeWithNaNPacking(double rawVal, double normVal) const;
 
   RooPlot *plotOn(RooPlot *frame, PlotOpt o) const override;
@@ -332,7 +354,7 @@ protected:
   Int_t* randomizeProtoOrder(Int_t nProto,Int_t nGen,bool resample=false) const ;
 
   // This also forces the definition of a copy ctor in derived classes
-  RooAbsPdf(const RooAbsPdf& other, const char* name = 0);
+  RooAbsPdf(const RooAbsPdf& other, const char* name = nullptr);
 
   static Int_t _verboseEval ;
 
@@ -351,20 +373,8 @@ protected:
   } ;
   mutable RooObjCacheManager _normMgr ; //! The cache manager
 
-  bool redirectServersHook(const RooAbsCollection&, bool, bool, bool) override {
-    // Hook function intercepting redirectServer calls. Discard current normalization
-    // object if any server is redirected
-
-    // Object is own by _normCacheManager that will delete object as soon as cache
-    // is sterilized by server redirect
-    _norm = nullptr ;
-
-    // Similar to the situation with the normalization integral above: if a
-    // server is redirected, the cached normalization set might not point to
-    // the right observables anymore. We need to reset it.
-    _normSet = nullptr ;
-    return false ;
-  } ;
+  bool redirectServersHook(const RooAbsCollection & newServerList, bool mustReplaceAll,
+                                   bool nameChange, bool isRecursiveStep) override;
 
 
   mutable Int_t _errorCount ;        ///< Number of errors remaining to print
@@ -373,12 +383,14 @@ protected:
 
   bool _selectComp ;               ///< Component selection flag for RooAbsPdf::plotCompOn
 
-  RooNumGenConfig* _specGeneratorConfig ; ///<! MC generator configuration specific for this object
+  std::unique_ptr<RooNumGenConfig> _specGeneratorConfig ; ///<! MC generator configuration specific for this object
 
   TString _normRange ; ///< Normalization range
   static TString _normRangeOverride ;
 
 private:
+  mutable RooFit::UniqueId<RooArgSet>::Value_t _normSetId = RooFit::UniqueId<RooArgSet>::nullval; ///<! Unique ID of the currently-active normalization set
+
   int calcAsymptoticCorrectedCovariance(RooMinimizer& minimizer, RooAbsData const& data);
   int calcSumW2CorrectedCovariance(RooMinimizer& minimizer, RooAbsReal & nll) const;
 

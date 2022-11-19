@@ -16,24 +16,14 @@
 #include <utility> // std::pair
 #include <vector>
 
-#include <ROOT/InternalTreeUtils.hxx> // ROOT::Internal::TreeUtils::RFriendInfo
-#include <RtypesCore.h>               // Long64_t
+#include <ROOT/RFriendInfo.hxx>
+#include <RtypesCore.h> // Long64_t
 
 namespace ROOT {
-
-namespace Detail {
 namespace RDF {
-class RLoopManager;
-} // namespace RDF
-} // namespace Detail
-
-namespace RDF {
-
 namespace Experimental {
 
 class RDatasetSpec {
-
-   friend class ROOT::Detail::RDF::RLoopManager;
 
 public:
    struct REntryRange {
@@ -57,8 +47,8 @@ private:
     * They can contain the globbing characters supported by TChain. See TChain::Add for more information.
     */
    std::vector<std::string> fFileNameGlobs;
-   REntryRange fEntryRange; ///< Start (inclusive) and end (exclusive) entry for the dataset processing
-   ROOT::Internal::TreeUtils::RFriendInfo fFriendInfo; ///< List of friends
+   REntryRange fEntryRange;                  ///< Start (inclusive) and end (exclusive) entry for the dataset processing
+   ROOT::TreeUtils::RFriendInfo fFriendInfo; ///< List of friends
 
 public:
    RDatasetSpec(const std::string &treeName, const std::string &fileNameGlob, const REntryRange &entryRange = {});
@@ -76,6 +66,12 @@ public:
 
    void AddFriend(const std::vector<std::pair<std::string, std::string>> &treeAndFileNameGlobs,
                   const std::string &alias = "");
+
+   const std::vector<std::string> &GetTreeNames() const;
+   const std::vector<std::string> &GetFileNameGlobs() const;
+   Long64_t GetEntryRangeBegin() const;
+   Long64_t GetEntryRangeEnd() const;
+   const ROOT::TreeUtils::RFriendInfo &GetFriendInfo() const;
 };
 
 } // namespace Experimental

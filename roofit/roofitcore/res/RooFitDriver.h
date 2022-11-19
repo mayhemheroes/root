@@ -30,6 +30,7 @@ class RooAbsData;
 namespace RooFit {
 class NormalizationIntegralUnfolder;
 }
+class RooSimultaneous;
 
 namespace ROOT {
 namespace Experimental {
@@ -49,8 +50,8 @@ public:
    RooFitDriver(const RooAbsReal &absReal, RooArgSet const &normSet,
                 RooFit::BatchModeOption batchMode = RooFit::BatchModeOption::Cpu);
 
-   void setData(RooAbsData const &data, std::string_view rangeName = "",
-                RooAbsCategory const *indexCatForSplitting = nullptr);
+   void setData(RooAbsData const &data, std::string const &rangeName = "", RooSimultaneous const *simPdf = nullptr,
+                bool splitRange = false, bool skipZeroWeights = false, bool takeGlobalObservablesFromData = true);
    void setData(DataSpansMap const &dataSpans);
 
    ~RooFitDriver();
@@ -58,13 +59,13 @@ public:
    double getVal();
    RooAbsReal &topNode() const;
 
+   void print(std::ostream &os) const;
+
 private:
    ///////////////////////////
    // Private member functions
 
    double getValHeterogeneous();
-   std::chrono::microseconds simulateFit(std::chrono::microseconds h2dTime, std::chrono::microseconds d2hTime,
-                                         std::chrono::microseconds diffThreshold);
    void markGPUNodes();
    void assignToGPU(NodeInfo &info);
    void computeCPUNode(const RooAbsArg *node, NodeInfo &info);
@@ -93,6 +94,8 @@ private:
 
    // RAII structures to reset state of computation graph after driver destruction
    std::stack<RooHelpers::ChangeOperModeRAII> _changeOperModeRAIIs;
+
+   std::vector<std::unique_ptr<RooAbsData>> _splittedDataSets;
 };
 
 } // end namespace Experimental

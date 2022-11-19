@@ -78,7 +78,7 @@ private:
    std::unique_ptr<TTaskGroup> fTaskGroup;
 public:
    RNTupleImtTaskScheduler();
-   virtual ~RNTupleImtTaskScheduler() = default;
+   ~RNTupleImtTaskScheduler() override = default;
    void Reset() final;
    void AddTask(const std::function<void(void)> &taskFunc) final;
    void Wait() final;
@@ -409,20 +409,25 @@ public:
    RNTupleWriter& operator=(const RNTupleWriter&) = delete;
    ~RNTupleWriter();
 
-   /// The simplest user interface if the default entry that comes with the ntuple model is used
-   void Fill() { Fill(*fModel->GetDefaultEntry()); }
+   /// The simplest user interface if the default entry that comes with the ntuple model is used.
+   /// \return The number of uncompressed bytes written.
+   std::size_t Fill() { return Fill(*fModel->GetDefaultEntry()); }
    /// Multiple entries can have been instantiated from the ntuple model.  This method will perform
-   /// a light check whether the entry comes from the ntuple's own model
-   void Fill(REntry &entry) {
+   /// a light check whether the entry comes from the ntuple's own model.
+   /// \return The number of uncompressed bytes written.
+   std::size_t Fill(REntry &entry) {
       if (R__unlikely(entry.GetModelId() != fModel->GetModelId()))
          throw RException(R__FAIL("mismatch between entry and model"));
 
+      std::size_t bytesWritten = 0;
       for (auto& value : entry) {
-         fUnzippedClusterSize += value.GetField()->Append(value);
+         bytesWritten += value.GetField()->Append(value);
       }
+      fUnzippedClusterSize += bytesWritten;
       fNEntries++;
       if ((fUnzippedClusterSize >= fMaxUnzippedClusterSize) || (fUnzippedClusterSize >= fUnzippedClusterSizeEst))
          CommitCluster();
+      return bytesWritten;
    }
    /// Ensure that the data from the so far seen Fill calls has been written to storage
    void CommitCluster(bool commitClusterGroup = false);

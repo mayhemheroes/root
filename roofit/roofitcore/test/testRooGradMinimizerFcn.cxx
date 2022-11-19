@@ -22,6 +22,12 @@
 #include <stdio.h> // remove redundant workspace files
 
 #include "gtest/gtest.h"
+
+// Backward compatibility for gtest version < 1.10.0
+#ifndef INSTANTIATE_TEST_SUITE_P
+#define INSTANTIATE_TEST_SUITE_P INSTANTIATE_TEST_CASE_P
+#endif
+
 #include "test_lib.h"
 
 #include <RooMsgService.h>
@@ -29,7 +35,8 @@
                            //
 class Environment : public testing::Environment {
 public:
-   void SetUp() override {
+   void SetUp() override
+   {
       RooMsgService::instance().setGlobalKillBelow(RooFit::ERROR);
       ROOT::Math::MinimizerOptions::SetDefaultMinimizer("Minuit2");
    }
@@ -84,7 +91,9 @@ TEST_P(GradMinimizerParSeed, Gaussian1D)
 
    *values = *savedValues;
 
-   RooMinimizer m1(*nll, RooMinimizer::FcnMode::gradient);
+   RooMinimizer::Config cfg;
+   cfg.parallelGradient = true;
+   RooMinimizer m1(*nll, cfg);
 
    m1.setStrategy(0);
    m1.setPrintLevel(-1);
@@ -103,9 +112,7 @@ TEST_P(GradMinimizerParSeed, Gaussian1D)
    EXPECT_EQ(edm0, edm1);
 }
 
-INSTANTIATE_TEST_SUITE_P(Seeds,
-                         GradMinimizerParSeed,
-                         testing::Range<unsigned long>(1, 11));
+INSTANTIATE_TEST_SUITE_P(Seeds, GradMinimizerParSeed, testing::Range<unsigned long>(1, 11));
 
 TEST(GradMinimizerDebugging, DISABLED_Gaussian1DNominal)
 {
@@ -146,7 +153,9 @@ TEST(GradMinimizerDebugging, DISABLED_Gaussian1DGradMinimizer)
    // when c++17 support arrives, change to this:
    // auto [nll, _] = generate_1D_gaussian_pdf_nll(w, 10000);
 
-   RooMinimizer m1(*nll, RooMinimizer::FcnMode::gradient);
+   RooMinimizer::Config cfg;
+   cfg.parallelGradient = true;
+   RooMinimizer m1(*nll, cfg);
 
    m1.setStrategy(0);
    m1.setPrintLevel(100);
@@ -215,7 +224,9 @@ TEST(GradMinimizer, GaussianND)
 
    // --------
 
-   RooMinimizer m1(*(nll.get()), RooMinimizer::FcnMode::gradient);
+   RooMinimizer::Config cfg;
+   cfg.parallelGradient = true;
+   RooMinimizer m1(*(nll.get()), cfg);
 
    m1.setStrategy(0);
    m1.setPrintLevel(-1);
@@ -278,7 +289,9 @@ TEST(GradMinimizerReverse, GaussianND)
 
    // --------
 
-   RooMinimizer m0(*nll, RooMinimizer::FcnMode::gradient);
+   RooMinimizer::Config cfg;
+   cfg.parallelGradient = true;
+   RooMinimizer m0(*nll, cfg);
 
    m0.setStrategy(0);
    m0.setPrintLevel(-1);
@@ -410,7 +423,8 @@ TEST(GradMinimizer, BranchingPDF)
 
    // set parameter values randomly so that they actually need to do some fitting
    for (auto *val : dynamic_range_cast<RooRealVar *>(all_values)) {
-      if(!val) break;
+      if (!val)
+         break;
       val->setVal(RooRandom::randomGenerator()->Uniform(val->getMin(), val->getMax()));
    }
 
@@ -454,7 +468,9 @@ TEST(GradMinimizer, BranchingPDF)
 
    // --------
 
-   RooMinimizer m1(*nll, RooMinimizer::FcnMode::gradient);
+   RooMinimizer::Config cfg;
+   cfg.parallelGradient = true;
+   RooMinimizer m1(*nll, cfg);
 
    m1.setStrategy(0);
    m1.setPrintLevel(-1);
@@ -570,7 +586,9 @@ TEST(GradMinimizerDebugging, DISABLED_BranchingPDFLoadFromWorkspace)
 
    all_values.Print("v");
 
-   RooMinimizer m1(*nll, RooMinimizer::FcnMode::gradient);
+   RooMinimizer::Config cfg;
+   cfg.parallelGradient = true;
+   RooMinimizer m1(*nll, cfg);
 
    m1.setStrategy(0);
    m1.setPrintLevel(-1);
@@ -639,7 +657,9 @@ TEST(GradMinimizerDebugging, DISABLED_BranchingPDFLoadFromWorkspaceGradMinimizer
    RooDataSet *data = static_cast<RooDataSet *>(w.data(""));
    auto nll = sum.createNLL(*data);
 
-   RooMinimizer m0(*nll, RooMinimizer::FcnMode::gradient);
+   RooMinimizer::Config cfg;
+   cfg.parallelGradient = true;
+   RooMinimizer m0(*nll, cfg);
    m0.setStrategy(0);
    m0.migrad();
 }

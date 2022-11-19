@@ -130,7 +130,8 @@ public:
        If data set is binned a least square fit is performed
        If data set is unbinned a maximum likelihood fit (not extended) is done
        Pre-requisite on the function:
-       it must implement the 1D or multidimensional parametric function interface
+       it must implement the 1D or multidimensional parametric function interface.
+       Note that both the input data and the function object are copied by the Fitter.
    */
    template <class Data, class Function,
              class cond = typename std::enable_if<!(std::is_same<Function, ROOT::EExecutionPolicy>::value ||
@@ -144,62 +145,91 @@ public:
    }
 
    /**
-       Fit a binned data set using a least square fit (default method)
+      Fit a binned data set using a least square fit.
+      Note that the provided input data are copied in the Fitter class.
+      Use the next function (passing a `shared_ptr` to the BinData class if you want to avoid
+      copying.
    */
    bool Fit(const BinData & data, const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
-      SetData(data);
-      return DoLeastSquareFit(executionPolicy);
-   }
-   bool Fit(const std::shared_ptr<BinData> & data, const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
-      SetData(data);
-      return DoLeastSquareFit(executionPolicy);
+      return LeastSquareFit(data, executionPolicy);
    }
 
    /**
-       Fit a binned data set using a least square fit
+      Fit a binned data set using a least square fit.
+      Pass the input data using a `shared_ptr` for NOT copying the input data.
    */
-   bool LeastSquareFit(const BinData & data) {
-      return Fit(data);
+   bool Fit(const std::shared_ptr<BinData> & data, const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
+      return LeastSquareFit(data, executionPolicy);
    }
 
    /**
-       fit an unbinned data set using loglikelihood method
+       Fit a binned data set using a least square fit copying the input data.
+   */
+   bool LeastSquareFit(const BinData & data, const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
+      SetData(data);
+      return DoLeastSquareFit(executionPolicy);
+   }
+   /**
+       Fit a binned data set using a least square fit NOT copying the input data.
+   */
+   bool LeastSquareFit(const std::shared_ptr<BinData> & data, const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
+      SetData(data);
+      return DoLeastSquareFit(executionPolicy);
+   }
+
+   /**
+       Fit an un-binned data set using the negative log-likelihood method.
+       This function copies the input data.
    */
    bool Fit(const UnBinData & data, bool extended = false, const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
-      SetData(data);
-      return DoUnbinnedLikelihoodFit(extended, executionPolicy);
+      return LikelihoodFit(data, extended, executionPolicy);
+   }
+   /**
+       Fit an un-binned data set using the negative log-likelihood method.
+       This function uses a `shared_ptr` to avoid copying the input data.
+   */
+   bool Fit(const std::shared_ptr<UnBinData> & data, bool extended = false, const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
+      return LikelihoodFit(data, extended, executionPolicy);
    }
 
    /**
-      Binned Likelihood fit. Default is extended
+      Binned Likelihood fit copying the input data.
+      Default is extended.
     */
    bool LikelihoodFit(const BinData &data, bool extended = true,
                       const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
       SetData(data);
       return DoBinnedLikelihoodFit(extended, executionPolicy);
    }
-
+   /**
+      Binned Likelihood fit using a `shared_ptr` for NOT copying the input data.
+      Default is extended.
+    */
    bool LikelihoodFit(const std::shared_ptr<BinData> &data, bool extended = true,
                       const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
       SetData(data);
       return DoBinnedLikelihoodFit(extended, executionPolicy);
    }
    /**
-      Unbinned Likelihood fit. Default is not extended
+      Un-binned Likelihood fit copying the input data
+      Default is NOT extended
     */
    bool LikelihoodFit(const UnBinData & data, bool extended = false, const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
       SetData(data);
       return DoUnbinnedLikelihoodFit(extended, executionPolicy);
    }
+   /**
+      Un-binned Likelihood fit using a `shared_ptr` for NOT copying the input data.
+      Default is NOT extended
+    */
    bool LikelihoodFit(const std::shared_ptr<UnBinData> & data, bool extended = false, const ROOT::EExecutionPolicy &executionPolicy = ROOT::EExecutionPolicy::kSequential) {
       SetData(data);
       return DoUnbinnedLikelihoodFit(extended, executionPolicy);
    }
 
-
    /**
-       fit a data set using any  generic model  function
-       Pre-requisite on the function:
+      Likelihood fit given a data set (Binned or Un-binned) using any  generic model  function.
+      This interface copies the input data and the model function object
    */
    template < class Data , class Function>
    bool LikelihoodFit( const Data & data, const Function & func, bool extended) {
@@ -208,17 +238,19 @@ public:
    }
 
    /**
-      do a linear fit on a set of bin-data
+      Do a linear fit copying the input data
     */
    bool LinearFit(const BinData & data) {
       SetData(data);
       return DoLinearFit();
    }
+   /**
+      Do a linear fit using a `shared_ptr` for NOT copying the input data
+    */
    bool LinearFit(const std::shared_ptr<BinData> & data) {
       SetData(data);
       return DoLinearFit();
    }
-
 
    /**
       Fit using the a generic FCN function as a C++ callable object implementing
@@ -250,20 +282,20 @@ public:
       Note that passing a params != 0 will set the parameter settings to the new value AND also the
       step sizes to some pre-defined value (stepsize = 0.3 * abs(parameter_value) )
     */
-   bool FitFCN(const ROOT::Math::IMultiGenFunction &fcn, const double *params = 0, unsigned int dataSize = 0, bool chi2fit = false);
+   bool FitFCN(const ROOT::Math::IMultiGenFunction &fcn, const double *params = nullptr, unsigned int dataSize = 0, bool chi2fit = false);
 
    /**
        Fit using a FitMethodFunction interface. Same as method above, but now extra information
        can be taken from the function class
    */
-   bool FitFCN(const ROOT::Math::FitMethodFunction & fcn, const double * params = 0);
+   bool FitFCN(const ROOT::Math::FitMethodFunction & fcn, const double *params = nullptr);
 
    /**
       Set the FCN function represented by a multi-dimensional function interface
       (ROOT::Math::IMultiGenFunction) and optionally the initial parameters
       See also note above for the initial parameters for FitFCN
     */
-   bool SetFCN(const ROOT::Math::IMultiGenFunction &fcn, const double *params = 0, unsigned int dataSize = 0, bool chi2fit = false);
+   bool SetFCN(const ROOT::Math::IMultiGenFunction &fcn, const double *params = nullptr, unsigned int dataSize = 0, bool chi2fit = false);
 
    /**
       Set the FCN function represented by a multi-dimensional function interface
@@ -272,14 +304,14 @@ public:
       With this interface we pass in addition a ModelFunction that will be attached to the FitResult and
       used to compute confidence interval of the fit
    */
-   bool SetFCN(const ROOT::Math::IMultiGenFunction &fcn, const IModelFunction & func, const double *params = 0,
+   bool SetFCN(const ROOT::Math::IMultiGenFunction &fcn, const IModelFunction & func, const double *params = nullptr,
                unsigned int dataSize = 0, bool chi2fit = false);
 
    /**
        Set the objective function (FCN)  using a FitMethodFunction interface.
        Same as method above, but now extra information can be taken from the function class
    */
-   bool SetFCN(const ROOT::Math::FitMethodFunction & fcn, const double * params = 0);
+   bool SetFCN(const ROOT::Math::FitMethodFunction & fcn, const double *params = nullptr);
 
    /**
       Fit using the given FCN function representing a multi-dimensional gradient function
@@ -287,20 +319,20 @@ public:
       gradient information provided by the function.
       For the options same consideration as in the previous method
     */
-   bool FitFCN(const ROOT::Math::IMultiGradFunction &fcn, const double *params = 0, unsigned int dataSize = 0, bool chi2fit = false);
+   bool FitFCN(const ROOT::Math::IMultiGradFunction &fcn, const double *params = nullptr, unsigned int dataSize = 0, bool chi2fit = false);
 
    /**
        Fit using a FitMethodGradFunction interface. Same as method above, but now extra information
        can be taken from the function class
    */
-   bool FitFCN(const ROOT::Math::FitMethodGradFunction & fcn, const double * params = 0);
+   bool FitFCN(const ROOT::Math::FitMethodGradFunction & fcn, const double *params = nullptr);
 
    /**
       Set the FCN function represented by a multi-dimensional gradient function interface
       (ROOT::Math::IMultiGradFunction) and optionally the initial parameters
       See also note above for the initial parameters for FitFCN
     */
-   bool SetFCN(const ROOT::Math::IMultiGradFunction &fcn, const double *params = 0, unsigned int dataSize = 0, bool chi2fit = false);
+   bool SetFCN(const ROOT::Math::IMultiGradFunction &fcn, const double *params = nullptr, unsigned int dataSize = 0, bool chi2fit = false);
 
    /**
       Set the FCN function represented by a multi-dimensional gradient function interface
@@ -309,14 +341,14 @@ public:
       With this interface we pass in addition a ModelFunction that will be attached to the FitResult and
       used to compute confidence interval of the fit
    */
-   bool SetFCN(const ROOT::Math::IMultiGradFunction &fcn, const IModelFunction &func, const double *params = 0,
+   bool SetFCN(const ROOT::Math::IMultiGradFunction &fcn, const IModelFunction &func, const double *params = nullptr,
                unsigned int dataSize = 0, bool chi2fit = false);
 
    /**
        Set the objective function (FCN)  using a FitMethodGradFunction interface.
        Same as method above, but now extra information can be taken from the function class
    */
-   bool SetFCN(const ROOT::Math::FitMethodGradFunction & fcn, const double * params = 0);
+   bool SetFCN(const ROOT::Math::FitMethodGradFunction & fcn, const double *params = nullptr);
 
 
    /**
@@ -325,14 +357,14 @@ public:
       For the options same consideration as in the previous method
     */
    typedef  void (* MinuitFCN_t )(int &npar, double *gin, double &f, double *u, int flag);
-   bool FitFCN( MinuitFCN_t fcn, int npar = 0, const double * params = 0, unsigned int dataSize = 0, bool chi2fit = false);
+   bool FitFCN( MinuitFCN_t fcn, int npar = 0, const double *params = nullptr, unsigned int dataSize = 0, bool chi2fit = false);
 
    /**
       set objective function using user provided FCN with Minuit-like interface
       If npar = 0 it is assumed that the parameters are specified in the parameter settings created before
       For the options same consideration as in the previous method
     */
-   bool SetFCN( MinuitFCN_t fcn, int npar = 0, const double * params = 0, unsigned int dataSize = 0, bool chi2fit = false);
+   bool SetFCN( MinuitFCN_t fcn, int npar = 0, const double *params = nullptr, unsigned int dataSize = 0, bool chi2fit = false);
 
    /**
       Perform a fit with the previously set FCN function. Require SetFCN before
@@ -488,21 +520,17 @@ protected:
    // get function calls from the FCN
    int GetNCallsFromFCN();
 
-   //set data for the fit
-   void SetData(const FitData & data) {
-      fData = std::shared_ptr<FitData>(const_cast<FitData*>(&data),DummyDeleter<FitData>());
-   }
-   // set data and function without cloning them
-   template <class T>
-   void SetFunctionAndData(const IModelFunctionTempl<T> & func, const FitData & data) {
-      SetData(data);
-      fFunc = std::shared_ptr<IModelFunctionTempl<T>>(const_cast<IModelFunctionTempl<T>*>(&func),DummyDeleter<IModelFunctionTempl<T>>());
-   }
-
-   //set data for the fit using a shared ptr
+   /// Set the input data for the fit using a shared ptr (No Copying)
    template <class Data>
    void SetData(const std::shared_ptr<Data> & data) {
       fData = std::static_pointer_cast<Data>(data);
+   }
+
+   /// Set the input data for the fit (Copying the given data object)
+   template <class Data>
+   void SetData(const Data & data) {
+      auto dataClone = std::make_shared<Data>(data);
+      SetData(dataClone);
    }
 
    /// look at the user provided FCN and get data and model function is

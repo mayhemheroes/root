@@ -14,17 +14,21 @@
  * listed in LICENSE (http://roofit.sourceforge.net/license.txt)             *
  *****************************************************************************/
 
-#include "RooHelpers.h"
-#include "RooAbsPdf.h"
-#include "RooAbsData.h"
-#include "RooDataHist.h"
-#include "RooDataSet.h"
-#include "RooAbsRealLValue.h"
-#include "RooArgList.h"
-#include "RooAbsCategory.h"
+#include <RooHelpers.h>
 
-#include "ROOT/StringUtils.hxx"
-#include "TClass.h"
+#include <RooAbsCategory.h>
+#include <RooAbsData.h>
+#include <RooAbsPdf.h>
+#include <RooAbsRealLValue.h>
+#include <RooArgList.h>
+#include <RooDataHist.h>
+#include <RooDataSet.h>
+#include <RooSimultaneous.h>
+#include <RooProdPdf.h>
+#include <RooRealSumPdf.h>
+
+#include <ROOT/StringUtils.hxx>
+#include <TClass.h>
 
 namespace RooHelpers {
 
@@ -179,13 +183,13 @@ std::pair<double, double> getRangeOrBinningInterval(RooAbsArg const* arg, const 
 
 
 /// Check if there is any overlap when a list of ranges is applied to a set of observables.
-/// \param[in] pdf the PDF
+/// \param[in] observables The observables to check for overlap
 /// \param[in] data RooAbsCollection with the observables to check for overlap.
 /// \param[in] rangeNames The names of the ranges.
-bool checkIfRangesOverlap(RooAbsPdf const& pdf, RooAbsData const& data, std::vector<std::string> const& rangeNames) {
-
-  auto observables = *pdf.getObservables(data);
-
+bool checkIfRangesOverlap(RooArgSet const& observables,
+                          RooAbsData const& data,
+                          std::vector<std::string> const& rangeNames)
+{
   auto getLimits = [&](RooAbsRealLValue const& rlv, const char* rangeName) {
 
     // RooDataHistCase
@@ -278,5 +282,40 @@ RooArgSet selectFromArgSet(RooArgSet const& argSet, std::string const& names) {
   return output;
 }
 
+
+std::string getRangeNameForSimComponent(std::string const& rangeName, bool splitRange, std::string const& catName)
+{
+   if (splitRange && !rangeName.empty()) {
+      std::string out;
+      auto tokens = ROOT::Split(rangeName, ",");
+      for(std::string const& token : tokens) {
+         out += token + "_" + catName + ",";
+      }
+      out.pop_back(); // to remove the last comma
+      return out;
+   }
+
+   return rangeName;
+}
+
+BinnedLOutput getBinnedL(RooAbsPdf &pdf)
+{
+   if (pdf.getAttribute("BinnedLikelihood") && pdf.IsA()->InheritsFrom(RooRealSumPdf::Class())) {
+      // Simplest case: top-level of component is a RooRealSumPdf
+      return {&pdf, true};
+   } else if (pdf.IsA()->InheritsFrom(RooProdPdf::Class())) {
+      // Default case: top-level pdf is a product of RooRealSumPdf and other pdfs
+      for (RooAbsArg *component : static_cast<RooProdPdf &>(pdf).pdfList()) {
+         if (component->getAttribute("BinnedLikelihood") && component->IsA()->InheritsFrom(RooRealSumPdf::Class())) {
+            return {static_cast<RooAbsPdf *>(component), true};
+         }
+         if (component->getAttribute("MAIN_MEASUREMENT")) {
+           // not really a binned pdf, but this prevents a (potentially) long list of subsidiary measurements to be passed to the slave calculator
+           return {static_cast<RooAbsPdf *>(component), false};
+         }
+      }
+   }
+   return {nullptr, false};
+}
 
 }

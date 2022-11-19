@@ -23,11 +23,13 @@
 #include <string>
 #include <queue>
 #include <functional>
+#include <map>
 
 class TPad;
 class TPadWebSnapshot;
 class TWebPS;
 class TObjLink;
+class TExec;
 
 class TWebCanvas : public TCanvasImp {
 
@@ -51,18 +53,33 @@ protected:
 
    struct WebConn {
       unsigned fConnId{0};             ///<! connection id
+      Long64_t fCheckedVersion{0};     ///<! canvas version checked before sending
       Long64_t fSendVersion{0};        ///<! canvas version send to the client
       Long64_t fDrawVersion{0};        ///<! canvas version drawn (confirmed) by client
+      UInt_t fLastSendHash{0};         ///<! hash of last send draw message, avoid looping
       std::queue<std::string> fSend;   ///<! send queue, processed after sending draw data
       WebConn(unsigned id) : fConnId(id) {}
+      void reset()
+      {
+         fCheckedVersion = fSendVersion = fDrawVersion = 0;
+         fLastSendHash = 0;
+      }
+   };
+
+   struct PadStatus {
+      Long64_t fVersion{0};    ///<! last pad version
+      bool _detected{false};   ///<! if pad was detected during last scan
+      bool _modified{false};   ///<! if pad was modified during last scan
+      bool _has_specials{false}; ///<! are there any special objects with painting
    };
 
    std::vector<WebConn> fWebConn;  ///<! connections
 
+   std::map<TPad*, PadStatus> fPadsStatus; ///<! map of pads in canvas and their status flags
+
    std::shared_ptr<ROOT::Experimental::RWebWindow> fWindow; ///!< configured display
 
    Bool_t fReadOnly{true};         ///<! in read-only mode canvas cannot be changed from client side
-   Bool_t fHasSpecials{false};     ///<! has special objects which may require pad ranges
    Long64_t fCanvVersion{1};       ///<! actual canvas version, changed with every new Modified() call
    UInt_t fClientBits{0};          ///<! latest status bits from client like editor visible or not
    TList fPrimitivesLists;         ///<! list of lists of primitives, temporary collected during painting
@@ -95,7 +112,9 @@ protected:
    void CreateObjectSnapshot(TPadWebSnapshot &master, TPad *pad, TObject *obj, const char *opt, TWebPS *masterps = nullptr);
    void CreatePadSnapshot(TPadWebSnapshot &paddata, TPad *pad, Long64_t version, PadPaintingReady_t func);
 
-   Bool_t CheckPadModified(TPad *pad, Int_t inc_version = 1);
+   void CheckPadModified(TPad *pad);
+
+   void CheckCanvasModified();
 
    Bool_t AddToSendQueue(unsigned connid, const std::string &msg);
 
@@ -103,7 +122,7 @@ protected:
 
    Bool_t WaitWhenCanvasPainted(Long64_t ver);
 
-   virtual Bool_t IsJSSupportedClass(TObject *obj);
+   virtual Bool_t IsJSSupportedClass(TObject *obj, Bool_t many_primitives = kFALSE);
 
    Bool_t IsFirstConn(unsigned connid) const { return (connid!=0) && (fWebConn.size()>0) && (fWebConn[0].fConnId == connid) ;}
 
@@ -113,13 +132,15 @@ protected:
 
    virtual Bool_t ProcessData(unsigned connid, const std::string &arg);
 
-   virtual Bool_t DecodePadOptions(const std::string &);
+   virtual Bool_t DecodePadOptions(const std::string &, bool process_execs = false);
 
    virtual Bool_t CanCreateObject(const std::string &) { return !IsReadOnly() && fCanCreateObjects; }
 
-   TPad *ProcessObjectOptions(TWebObjectOptions &item, TPad *pad);
+   TPad *ProcessObjectOptions(TWebObjectOptions &item, TPad *pad, int idcnt = 1);
 
-   TObject *FindPrimitive(const std::string &id, TPad *pad = nullptr, TObjLink **padlnk = nullptr, TPad **objpad = nullptr);
+   TObject *FindPrimitive(const std::string &id, int idcnt = 1, TPad *pad = nullptr, TObjLink **padlnk = nullptr, TPad **objpad = nullptr);
+
+   void ProcessExecs(TPad *pad, TExec *extra = nullptr);
 
 public:
    TWebCanvas(TCanvas *c, const char *name, Int_t x, Int_t y, UInt_t width, UInt_t height, Bool_t readonly = kTRUE);

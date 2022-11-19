@@ -41,13 +41,12 @@ combined in the main thread.
 #include "RooAbsData.h"
 #include "RooArgSet.h"
 #include "RooRealVar.h"
-#include "RooNLLVar.h"
 #include "RooRealMPFE.h"
 #include "RooErrorHandler.h"
 #include "RooMsgService.h"
-#include "RooProdPdf.h"
-#include "RooRealSumPdf.h"
 #include "RooAbsCategoryLValue.h"
+#include "RooHelpers.h"
+#include "RooAbsOptTestStatistic.h"
 
 #include "TTimeStamp.h"
 #include "TClass.h"
@@ -107,16 +106,6 @@ RooAbsTestStatistic::RooAbsTestStatistic(const char *name, const char *title, Ro
 {
   // Register all parameters as servers
   _paramSet.add(*std::unique_ptr<RooArgSet>{real.getParameters(&data)});
-
-  if (cfg.rangeName.find(',') != std::string::npos) {
-    auto errorMsg = std::string("Ranges ") + cfg.rangeName
-            + " were passed to the RooAbsTestStatistic with name \"" + name + "\", "
-            + "but it doesn't support multiple comma-separated fit ranges!\n" +
-            + "Instead, one should combine multiple RooAbsTestStatistic objects "
-            + "(see RooAbsPdf::createNLL for an example with RooNLLVar).";
-    coutE(InputArguments) <<  errorMsg << std::endl;
-    throw std::invalid_argument(errorMsg);
-  }
 }
 
 
@@ -309,7 +298,7 @@ bool RooAbsTestStatistic::initialize()
 ////////////////////////////////////////////////////////////////////////////////
 /// Forward server redirect calls to component test statistics
 
-bool RooAbsTestStatistic::redirectServersHook(const RooAbsCollection& newServerList, bool mustReplaceAll, bool nameChange, bool)
+bool RooAbsTestStatistic::redirectServersHook(const RooAbsCollection& newServerList, bool mustReplaceAll, bool nameChange, bool isRecursive)
 {
   if (SimMaster == _gofOpMode && _gofArray) {
     // Forward to slaves
@@ -327,7 +316,7 @@ bool RooAbsTestStatistic::redirectServersHook(const RooAbsCollection& newServerL
       }
     }
   }
-  return false;
+  return RooAbsReal::redirectServersHook(newServerList, mustReplaceAll, nameChange, isRecursive);
 }
 
 
@@ -499,25 +488,7 @@ void RooAbsTestStatistic::initSimMode(RooSimultaneous* simpdf, RooAbsData* data,
 
       // *** START HERE
       // WVE HACK determine if we have a RooRealSumPdf and then treat it like a binned likelihood
-      RooAbsPdf* binnedPdf = 0 ;
-      bool binnedL = false ;
-      if (pdf->getAttribute("BinnedLikelihood") && pdf->IsA()->InheritsFrom(RooRealSumPdf::Class())) {
-        // Simplest case: top-level of component is a RRSP
-        binnedPdf = pdf ;
-        binnedL = true ;
-      } else if (pdf->IsA()->InheritsFrom(RooProdPdf::Class())) {
-        // Default case: top-level pdf is a product of RRSP and other pdfs
-        for (auto const* component : static_cast<RooProdPdf*>(pdf)->pdfList()) {
-          if (component->getAttribute("BinnedLikelihood") && component->IsA()->InheritsFrom(RooRealSumPdf::Class())) {
-            binnedPdf = (RooAbsPdf*) component ;
-            binnedL = true ;
-          }
-          if (component->getAttribute("MAIN_MEASUREMENT")) {
-            // not really a binned pdf, but this prevents a (potentially) long list of subsidiary measurements to be passed to the slave calculator
-            binnedPdf = (RooAbsPdf*) component ;
-          }
-        }
-      }
+      auto binnedInfo = RooHelpers::getBinnedL(*pdf);
       // WVE END HACK
       // Below here directly pass binnedPdf instead of PROD(binnedPdf,constraints) as constraints are evaluated elsewhere anyway
       // and omitting them reduces model complexity and associated handling/cloning times
@@ -526,7 +497,7 @@ void RooAbsTestStatistic::initSimMode(RooSimultaneous* simpdf, RooAbsData* data,
       cfg.interleave = _mpinterl;
       cfg.verbose = _verbose;
       cfg.splitCutRange = _splitRange;
-      cfg.binnedL = binnedL;
+      cfg.binnedL = binnedInfo.isBinnedL;
       cfg.takeGlobalObservablesFromData = _takeGlobalObservablesFromData;
       // This configuration parameter is stored in the RooAbsOptTestStatistic.
       // It would have been cleaner to move the member variable into RooAbsTestStatistic,
@@ -534,14 +505,9 @@ void RooAbsTestStatistic::initSimMode(RooSimultaneous* simpdf, RooAbsData* data,
       if(auto thisAsRooAbsOptTestStatistic = dynamic_cast<RooAbsOptTestStatistic const*>(this)) {
         cfg.integrateOverBinsPrecision = thisAsRooAbsOptTestStatistic->_integrateBinsPrecision;
       }
-      if (_splitRange && !rangeName.empty()) {
-        cfg.rangeName = rangeName + "_" + catName;
-        cfg.nCPU = _nCPU*(_mpinterl?-1:1);
-      } else {
-        cfg.rangeName = rangeName;
-        cfg.nCPU = _nCPU;
-      }
-      _gofArray[n] = create(catName.c_str(),catName.c_str(),(binnedPdf?*binnedPdf:*pdf),*dset,*projDeps,cfg);
+      cfg.rangeName = RooHelpers::getRangeNameForSimComponent(rangeName, _splitRange, catName);
+      cfg.nCPU = _nCPU;
+      _gofArray[n] = create(catName.c_str(),catName.c_str(),(binnedInfo.binnedPdf?*binnedInfo.binnedPdf:*pdf),*dset,*projDeps,cfg);
       _gofArray[n]->setSimCount(_nGof);
       // *** END HERE
 
@@ -560,7 +526,7 @@ void RooAbsTestStatistic::initSimMode(RooSimultaneous* simpdf, RooAbsData* data,
 
       // Servers may have been redirected between instantiation and (deferred) initialization
 
-      RooArgSet *actualParams = binnedPdf ? binnedPdf->getParameters(dset) : pdf->getParameters(dset);
+      RooArgSet *actualParams = binnedInfo.binnedPdf ? binnedInfo.binnedPdf->getParameters(dset) : pdf->getParameters(dset);
       RooArgSet* selTargetParams = (RooArgSet*) _paramSet.selectCommon(*actualParams);
 
       _gofArray[n]->recursiveRedirectServers(*selTargetParams);

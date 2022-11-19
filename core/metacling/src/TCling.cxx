@@ -3364,6 +3364,13 @@ void TCling::UpdateListOfLoadedSharedLibraries()
 #endif
 }
 
+namespace {
+template <int N>
+static bool StartsWithStrLit(const char *haystack, const char (&needle)[N]) {
+   return !strncmp(haystack, needle, N - 1);
+}
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Register a new shared library name with the interpreter; add it to
 /// fSharedLibs.
@@ -3381,41 +3388,47 @@ void TCling::RegisterLoadedSharedLibrary(const char* filename)
    }
 
 #if defined(R__MACOSX)
-   // Check that this is not a system library
+   // Check that this is not a system library that does not exist on disk.
    auto lenFilename = strlen(filename);
-   if (!strncmp(filename, "/usr/lib/system/", 16)
-       || !strncmp(filename, "/usr/lib/libc++", 15)
-       || !strncmp(filename, "/System/Library/Frameworks/", 27)
-       || !strncmp(filename, "/System/Library/PrivateFrameworks/", 34)
-       || !strncmp(filename, "/System/Library/CoreServices/", 29)
-       || !strcmp(filename, "cl_kernels") // yepp, no directory
-       || strstr(filename, "/usr/lib/libSystem")
-       || strstr(filename, "/usr/lib/libstdc++")
-       || strstr(filename, "/usr/lib/libicucore")
-       || strstr(filename, "/usr/lib/libbsm")
-       || strstr(filename, "/usr/lib/libobjc")
-       || strstr(filename, "/usr/lib/libresolv")
-       || strstr(filename, "/usr/lib/libauto")
-       || strstr(filename, "/usr/lib/libcups")
-       || strstr(filename, "/usr/lib/libDiagnosticMessagesClient")
-       || strstr(filename, "/usr/lib/liblangid")
-       || strstr(filename, "/usr/lib/libCRFSuite")
-       || strstr(filename, "/usr/lib/libpam")
-       || strstr(filename, "/usr/lib/libOpenScriptingUtil")
-       || strstr(filename, "/usr/lib/libextension")
-       || strstr(filename, "/usr/lib/libAudioToolboxUtility")
-       || strstr(filename, "/usr/lib/liboah")
-       || strstr(filename, "/usr/lib/libRosetta")
-       || strstr(filename, "/usr/lib/libCoreEntitlements")
-       || strstr(filename, "/usr/lib/libssl.")
-       || strstr(filename, "/usr/lib/libcrypto.")
-       // These are candidates for suppression, too:
-       //   -lfakelink -lapple_nghttp2 -lnetwork -lsqlite3 -lenergytrace -lCoreEntitlements
-       //   -lMobileGestalt -lcoretls -lcoretls_cfhelpers -lxar.1 -lcompression -larchive.2
-       //   -lxml2.2 -lpcap.A -ldns_services -llzma.5 -lbz2.1.0 -liconv.2 -lcharset.1
-       //   -lCheckFix -lmecabra -lmecab -lgermantok -lThaiTokenizer -lChineseTokenizer
-       //   -lcmph -lutil -lapp_launch_measurement -lxslt.1 -lspindump -late -lexpat.1
-       //   -lAudioStatistics -lSMC -lperfcheck -lmis -lIOReport -lheimdal-asn1
+   auto isInMacOSSystemDir = [](const char *fn) {
+      return StartsWithStrLit(fn, "/usr/lib/") || StartsWithStrLit(fn, "/System/Library/");
+   };
+   if (!strcmp(filename, "cl_kernels") // yepp, no directory
+
+       // These we should not link with (e.g. because they forward to .tbd):
+       || StartsWithStrLit(filename, "/usr/lib/system/")
+       || StartsWithStrLit(filename, "/usr/lib/libc++")
+       || StartsWithStrLit(filename, "/System/Library/Frameworks/")
+       || StartsWithStrLit(filename, "/System/Library/PrivateFrameworks/")
+       || StartsWithStrLit(filename, "/System/Library/CoreServices/")
+       || StartsWithStrLit(filename, "/usr/lib/libSystem")
+       || StartsWithStrLit(filename, "/usr/lib/libstdc++")
+       || StartsWithStrLit(filename, "/usr/lib/libicucore")
+       || StartsWithStrLit(filename, "/usr/lib/libbsm")
+       || StartsWithStrLit(filename, "/usr/lib/libobjc")
+       || StartsWithStrLit(filename, "/usr/lib/libresolv")
+       || StartsWithStrLit(filename, "/usr/lib/libauto")
+       || StartsWithStrLit(filename, "/usr/lib/libcups")
+       || StartsWithStrLit(filename, "/usr/lib/libDiagnosticMessagesClient")
+       || StartsWithStrLit(filename, "/usr/lib/liblangid")
+       || StartsWithStrLit(filename, "/usr/lib/libCRFSuite")
+       || StartsWithStrLit(filename, "/usr/lib/libpam")
+       || StartsWithStrLit(filename, "/usr/lib/libOpenScriptingUtil")
+       || StartsWithStrLit(filename, "/usr/lib/libextension")
+       || StartsWithStrLit(filename, "/usr/lib/libAudioToolboxUtility")
+       || StartsWithStrLit(filename, "/usr/lib/liboah")
+       || StartsWithStrLit(filename, "/usr/lib/libRosetta")
+       || StartsWithStrLit(filename, "/usr/lib/libCoreEntitlements")
+       || StartsWithStrLit(filename, "/usr/lib/libssl.")
+       || StartsWithStrLit(filename, "/usr/lib/libcrypto.")
+
+       // The system lib is likely in macOS's blob.
+       || (isInMacOSSystemDir(filename) && gSystem->AccessPathName(filename))
+
+       // "Link against the umbrella framework 'System.framework' instead"
+       || StartsWithStrLit(filename, "/usr/lib/system/libsystem_kernel")
+       || StartsWithStrLit(filename, "/usr/lib/system/libsystem_platform")
+       || StartsWithStrLit(filename, "/usr/lib/system/libsystem_pthread")
 
        // "cannot link directly with dylib/framework, your binary is not an allowed client of
        // /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/
@@ -4522,7 +4535,7 @@ TClass *TCling::GenerateTClass(const char *classname, Bool_t emulation, Bool_t s
             if ((mi.Property() & kIsStatic)
                 && !fInterpreter->isInSyntaxOnlyMode()) {
                // This better be a static function.
-               TClingCallFunc callfunc(GetInterpreterImpl(), *fNormalizedCtxt);
+               TClingCallFunc callfunc(GetInterpreterImpl());
                callfunc.SetFunc(&mi);
                newvers = callfunc.ExecInt(0);
             } else {
@@ -4883,7 +4896,7 @@ TString TCling::GetMangledName(TClass* cl, const char* method,
                                const char* params, Bool_t objectIsConst /* = kFALSE */)
 {
    R__LOCKGUARD(gInterpreterMutex);
-   TClingCallFunc func(GetInterpreterImpl(), *fNormalizedCtxt);
+   TClingCallFunc func(GetInterpreterImpl());
    if (cl) {
       Longptr_t offset;
       func.SetFunc((TClingClassInfo*)cl->GetClassInfo(), method, params, objectIsConst,
@@ -4928,7 +4941,7 @@ void* TCling::GetInterfaceMethod(TClass* cl, const char* method,
                                  const char* params, Bool_t objectIsConst /* = kFALSE */)
 {
    R__LOCKGUARD(gInterpreterMutex);
-   TClingCallFunc func(GetInterpreterImpl(), *fNormalizedCtxt);
+   TClingCallFunc func(GetInterpreterImpl());
    if (cl) {
       Longptr_t offset;
       func.SetFunc((TClingClassInfo*)cl->GetClassInfo(), method, params, objectIsConst,
@@ -5036,11 +5049,11 @@ void* TCling::GetInterfaceMethodWithPrototype(TClass* cl, const char* method,
    void* f;
    if (cl) {
       f = ((TClingClassInfo*)cl->GetClassInfo())->
-         GetMethod(method, proto, objectIsConst, 0 /*poffset*/, mode).InterfaceMethod(*fNormalizedCtxt);
+         GetMethod(method, proto, objectIsConst, 0 /*poffset*/, mode).InterfaceMethod();
    }
    else {
       TClingClassInfo gcl(GetInterpreterImpl());
-      f = gcl.GetMethod(method, proto, objectIsConst, 0 /*poffset*/, mode).InterfaceMethod(*fNormalizedCtxt);
+      f = gcl.GetMethod(method, proto, objectIsConst, 0 /*poffset*/, mode).InterfaceMethod();
    }
    return f;
 }
@@ -5158,7 +5171,7 @@ void TCling::Execute(const char* function, const char* params, int* error)
    }
    TClingClassInfo cl(GetInterpreterImpl());
    Longptr_t offset = 0L;
-   TClingCallFunc func(GetInterpreterImpl(), *fNormalizedCtxt);
+   TClingCallFunc func(GetInterpreterImpl());
    func.SetFunc(&cl, function, params, &offset);
    func.Exec(0);
 }
@@ -5186,7 +5199,7 @@ void TCling::Execute(TObject* obj, TClass* cl, const char* method,
    // hence gInterpreter->Execute will improperly correct the offset.
    void* addr = cl->DynamicCast(TObject::Class(), obj, kFALSE);
    Longptr_t offset = 0L;
-   TClingCallFunc func(GetInterpreterImpl(), *fNormalizedCtxt);
+   TClingCallFunc func(GetInterpreterImpl());
    func.SetFunc((TClingClassInfo*)cl->GetClassInfo(), method, params, objectIsConst, &offset);
    void* address = (void*)((Longptr_t)addr + offset);
    func.Exec(address);
@@ -5288,7 +5301,7 @@ void TCling::Execute(TObject* obj, TClass* cl, TMethod* method,
    // 'obj' is unlikely to be the start of the object (as described by IsA()),
    // hence gInterpreter->Execute will improperly correct the offset.
    void* addr = cl->DynamicCast(TObject::Class(), obj, kFALSE);
-   TClingCallFunc func(GetInterpreterImpl(), *fNormalizedCtxt);
+   TClingCallFunc func(GetInterpreterImpl());
    TClingMethodInfo *minfo = (TClingMethodInfo*)method->fInfo;
    func.Init(*minfo);
    func.SetArgs(listpar);
@@ -5313,7 +5326,7 @@ void TCling::ExecuteWithArgsAndReturn(TMethod* method, void* address,
    }
 
    TClingMethodInfo* minfo = (TClingMethodInfo*) method->fInfo;
-   TClingCallFunc func(*minfo,*fNormalizedCtxt);
+   TClingCallFunc func(*minfo);
    func.ExecWithArgsAndReturn(address, args, nargs, ret);
 }
 
@@ -7811,7 +7824,7 @@ Double_t TCling::CallFunc_ExecDouble(CallFunc_t* func, void* address) const
 CallFunc_t* TCling::CallFunc_Factory() const
 {
    R__LOCKGUARD(gInterpreterMutex);
-   return (CallFunc_t*) new TClingCallFunc(GetInterpreterImpl(), *fNormalizedCtxt);
+   return (CallFunc_t*) new TClingCallFunc(GetInterpreterImpl());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -8951,7 +8964,7 @@ MethodInfo_t* TCling::MethodInfo_FactoryCopy(MethodInfo_t* minfo) const
 void* TCling::MethodInfo_InterfaceMethod(MethodInfo_t* minfo) const
 {
    TClingMethodInfo* info = (TClingMethodInfo*) minfo;
-   return info->InterfaceMethod(*fNormalizedCtxt);
+   return info->InterfaceMethod();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

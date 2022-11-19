@@ -23,13 +23,11 @@
 
 #include "RooEffProd.h"
 #include "RooEffGenContext.h"
-#include "RooNameReg.h"
-#include "RooRealVar.h"
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Constructor of a a production of p.d.f inPdf with efficiency
-/// function inEff.
+/// Constructs the product of the PDF `inPdf` with the efficiency function
+/// `inEff`.
 
 RooEffProd::RooEffProd(const char *name, const char *title,
                              RooAbsPdf& inPdf, RooAbsReal& inEff) :

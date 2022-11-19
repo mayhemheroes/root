@@ -58,7 +58,7 @@ class R__CLING_PTRCHECK(off) RAction : public RActionBase {
    const std::shared_ptr<PrevNode> fPrevNodePtr;
    PrevNode &fPrevNode;
    /// Column readers per slot and per input column
-   std::vector<std::array<std::shared_ptr<RColumnReaderBase>, ColumnTypes_t::list_size>> fValues;
+   std::vector<std::array<RColumnReaderBase *, ColumnTypes_t::list_size>> fValues;
 
    /// The nth flag signals whether the nth input column is a custom column or not.
    std::array<bool, ColumnTypes_t::list_size> fIsDefine;
@@ -71,9 +71,8 @@ public:
       fLoopManager->Register(this);
 
       const auto nColumns = columns.size();
-      const auto &customCols = GetColRegister();
       for (auto i = 0u; i < nColumns; ++i)
-         fIsDefine[i] = customCols.IsDefineOrAlias(columns[i]);
+         fIsDefine[i] = colRegister.IsDefineOrAlias(columns[i]);
    }
 
    RAction(const RAction &) = delete;
@@ -96,7 +95,7 @@ public:
    {
       RDFInternal::RColumnReadersInfo info{RActionBase::GetColumnNames(), RActionBase::GetColRegister(),
                                            fIsDefine.data(), *fLoopManager};
-      fValues[slot] = RDFInternal::MakeColumnReaders(slot, r, ColumnTypes_t{}, info);
+      fValues[slot] = RDFInternal::GetColumnReaders(slot, r, ColumnTypes_t{}, info);
       fHelper.InitTask(r, slot);
    }
 
@@ -119,8 +118,7 @@ public:
    /// Clean-up operations to be performed at the end of a task.
    void FinalizeSlot(unsigned int slot) final
    {
-      for (auto &v : fValues[slot])
-         v.reset();
+      fValues[slot].fill(nullptr);
       fHelper.CallFinalizeTask(slot);
    }
 

@@ -67,7 +67,7 @@ protected:
 
 private:
 
-   TH3(const TH3&);
+   TH3(const TH3&) = delete;
    TH3& operator=(const TH3&) = delete;
 
    using TH1::Integral;
@@ -90,8 +90,8 @@ public:
 
            void     FillRandom(const char *fname, Int_t ntimes=5000, TRandom *rng = nullptr) override;
            void     FillRandom(TH1 *h, Int_t ntimes=5000, TRandom *rng = nullptr) override;
-   virtual void     FitSlicesZ(TF1 *f1=0,Int_t binminx=1, Int_t binmaxx=0,Int_t binminy=1, Int_t binmaxy=0,
-                                        Int_t cut=0 ,Option_t *option="QNR"); // *MENU*
+   virtual void     FitSlicesZ(TF1 *f1 = nullptr, Int_t binminx = 1, Int_t binmaxx = 0, Int_t binminy = 1, Int_t binmaxy = 0,
+                               Int_t cut = 0, Option_t *option = "QNR"); // *MENU*
            Int_t    GetBin(Int_t binx, Int_t biny, Int_t binz) const override;
    using TH1::GetBinContent;
            Double_t GetBinContent(Int_t binx, Int_t biny, Int_t binz) const override { return TH1::GetBinContent( GetBin(binx, biny, binz) ); }
@@ -130,25 +130,20 @@ public:
 
 protected:
 
-   virtual TH1D        *DoProject1D(const char* name, const char * title, int imin1, int imax1, int imin2, int imax2,
-                                    const TAxis* projAxis, const TAxis * axis1, const TAxis * axis2, Option_t * option) const;
-   virtual TH1D *DoProject1D(const char *name, const char *title, const TAxis *projAxis, const TAxis *axis1,
-                             const TAxis *axis2, bool computeErrors, bool originalRange, bool useUF, bool useOF) const;
-   virtual TH2D        *DoProject2D(const char* name, const char * title, const TAxis* projX, const TAxis* projY,
-                        bool computeErrors, bool originalRange,
-                         bool useUF, bool useOF) const;
-   virtual TProfile2D  *DoProjectProfile2D(const char* name, const char * title, const TAxis* projX, const TAxis* projY,
-                                          bool originalRange, bool useUF, bool useOF) const;
+   virtual TH1D    *DoProject1D(const char* name, const char * title, int imin1, int imax1, int imin2, int imax2,
+                                const TAxis* projAxis, const TAxis * axis1, const TAxis * axis2, Option_t * option) const;
+   virtual TH1D    *DoProject1D(const char *name, const char *title, const TAxis *projAxis, const TAxis *axis1,
+                                const TAxis *axis2, bool computeErrors, bool originalRange, bool useUF, bool useOF) const;
+   virtual TH2D    *DoProject2D(const char* name, const char * title, const TAxis* projX, const TAxis* projY,
+                                bool computeErrors, bool originalRange, bool useUF, bool useOF) const;
+   virtual TProfile2D *DoProjectProfile2D(const char* name, const char * title, const TAxis* projX, const TAxis* projY,
+                                           bool originalRange, bool useUF, bool useOF) const;
 
    // these functions are need to be used inside TProfile3D::DoProjectProfile2D
-   static TH1D         *DoProject1D(const TH3 & h, const char* name, const char * title, const TAxis* projX,
-                                    bool computeErrors, bool originalRange, bool useUF, bool useOF)  {
-      return h.DoProject1D(name, title, projX, nullptr, nullptr, computeErrors, originalRange, useUF, useOF);
-   }
-   static TH2D         *DoProject2D(const TH3 & h, const char* name, const char * title, const TAxis* projX, const TAxis* projY,
-                                    bool computeErrors, bool originalRange, bool useUF, bool useOF)  {
-      return h.DoProject2D(name, title, projX,projY, computeErrors, originalRange, useUF, useOF);
-   }
+   static TH1D     *DoProject1D(const TH3 & h, const char* name, const char * title, const TAxis* projX,
+                                bool computeErrors, bool originalRange, bool useUF, bool useOF);
+   static TH2D     *DoProject2D(const TH3 & h, const char* name, const char * title, const TAxis* projX, const TAxis* projY,
+                                bool computeErrors, bool originalRange, bool useUF, bool useOF);
 
    ClassDefOverride(TH3,6)  //3-Dim histogram base class
 };

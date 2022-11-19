@@ -134,7 +134,7 @@ if(MSVC)
       _Smtx_unlock_shared
     )
   endif()
-  if("${CMAKE_GENERATOR_PLATFORM}" MATCHES "x64")
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(cling_exports ${cling_exports}
       ??2@YAPEAX_K@Z
       ??3@YAXPEAX@Z
@@ -190,7 +190,7 @@ if(MSVC)
 endif()
 
 if(APPLE)
-  target_link_libraries(Cling PUBLIC -Wl,-bind_at_load -Wl,-undefined -Wl,dynamic_lookup)
+  target_link_libraries(Cling PUBLIC -Wl,-bind_at_load -Wl,-flat_namespace -Wl,-undefined -Wl,suppress)
 elseif(NOT MSVC)
   target_link_libraries(Cling PUBLIC -Wl,--unresolved-symbols=ignore-in-object-files)
 endif()

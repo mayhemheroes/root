@@ -86,7 +86,7 @@ public:
   /// Get low and high bound of the variable.
   /// \param name Optional range name. If not given, the default range will be used.
   /// \return A pair with [lowerBound, upperBound]
-  std::pair<double, double> getRange(const char* name = 0) const {
+  std::pair<double, double> getRange(const char* name = nullptr) const {
     const auto& binning = getBinning(name);
     return {binning.lowBound(), binning.highBound()};
   }
@@ -152,6 +152,8 @@ public:
 
   static TH1* createHistogram(const char *name, RooArgList &vars, const char *tAxisLabel, double* xlo, double* xhi, Int_t* nBins) ;
   static TH1* createHistogram(const char *name, RooArgList &vars, const char *tAxisLabel, const RooAbsBinning** bins) ;
+
+  RooAbsReal* createIntegral(const RooArgSet& iset, const RooArgSet* nset=nullptr, const RooNumIntConfig* cfg=nullptr, const char* rangeName=nullptr) const override;
 
 protected:
 

@@ -66,6 +66,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ROOTDataFrame
     ROOT/RDF/RFilterBase.hxx
     ROOT/RDF/RFilter.hxx
     ROOT/RDF/RInterface.hxx
+    ROOT/RDF/RInterfaceBase.hxx
     ROOT/RDF/RJittedAction.hxx
     ROOT/RDF/RJittedDefine.hxx
     ROOT/RDF/RJittedFilter.hxx
@@ -77,7 +78,6 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ROOTDataFrame
     ROOT/RDF/RRangeBase.hxx
     ROOT/RDF/RRange.hxx
     ROOT/RDF/RResultMap.hxx
-    ROOT/RDF/RSlotStack.hxx
     ROOT/RDF/RTreeColumnReader.hxx
     ROOT/RDF/RVariation.hxx
     ROOT/RDF/RVariationBase.hxx
@@ -104,6 +104,7 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ROOTDataFrame
     src/RDFUtils.cxx
     src/RDFHelpers.cxx
     src/RFilterBase.cxx
+    src/RInterfaceBase.cxx
     src/RJittedAction.cxx
     src/RJittedDefine.cxx
     src/RJittedFilter.cxx
@@ -113,7 +114,6 @@ ROOT_STANDARD_LIBRARY_PACKAGE(ROOTDataFrame
     src/RVariationBase.cxx
     src/RVariationsDescription.cxx
     src/RRootDS.cxx
-    src/RSlotStack.cxx
     src/RTrivialDS.cxx
     src/RDFDescription.cxx
   DICTIONARY_OPTIONS

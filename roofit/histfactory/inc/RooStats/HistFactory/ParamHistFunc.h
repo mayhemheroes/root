@@ -27,9 +27,8 @@ public:
   ParamHistFunc() ;
   ParamHistFunc(const char *name, const char *title, const RooArgList& vars, const RooArgList& paramSet );
   ParamHistFunc(const char *name, const char *title, const RooArgList& vars, const RooArgList& paramSet, const TH1* hist );
-  ~ParamHistFunc() override ;
 
-  ParamHistFunc(const ParamHistFunc& other, const char* name = 0);
+  ParamHistFunc(const ParamHistFunc& other, const char *name = nullptr);
   TObject* clone(const char* newname) const override { return new ParamHistFunc(*this, newname); }
 
   const RooArgList& paramList() const { return _paramSet ; }
@@ -67,8 +66,6 @@ protected:
 
   class CacheElem : public RooAbsCacheElement {
   public:
-    CacheElem()  {} ;
-    ~CacheElem() override {} ;
     RooArgList containedArgs(Action) override {
       RooArgList ret(_funcIntList) ;
       ret.add(_lowIntList);
@@ -85,7 +82,7 @@ protected:
   RooListProxy _dataVars;             ///< The RooRealVars
   RooListProxy _paramSet ;            ///< interpolation parameters
 
-  Int_t _numBins;
+  Int_t _numBins = 0;
   struct NumBins {
     NumBins() {}
     NumBins(int nx, int ny, int nz) : x{nx}, y{ny}, z{nz}, xy{x*y}, xz{x*z}, yz{y*z}, xyz{xy*z} {}

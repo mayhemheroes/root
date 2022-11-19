@@ -88,7 +88,7 @@ class RooFIterForLinkedList final : public GenericRooFIter
 ///
 /// With an iterator that counts, only inserting before or at the iterator position will create problems.
 /// deal with reallocations while iterating. Therefore, this iterator will also check that the last element
-/// it was pointing to is the the current element when it is invoked again. This ensures that
+/// it was pointing to is the current element when it is invoked again. This ensures that
 /// inserting or removing before this iterator does not happen, which was possible with
 /// the linked list iterators of RooFit.
 /// When NDEBUG is defined, these checks will disappear.
@@ -264,7 +264,7 @@ public:
 
   const TCollection *GetCollection() const override {
     // Dummy
-    return 0 ;
+    return nullptr ;
   }
 
   TObject *Next() override {

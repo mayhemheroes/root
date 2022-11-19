@@ -1923,7 +1923,7 @@ Int_t TColor::GetColor(Int_t r, Int_t g, Int_t b)
    TColor *color = nullptr;
 
    // Look for color by name
-   if ((color = (TColor*) colors->FindObject(Form("#%02x%02x%02x", r, g, b))))
+   if ((color = (TColor*) colors->FindObject(TString::Format("#%02x%02x%02x", r, g, b).Data())))
       // We found the color by name, so we use that right away
       return color->GetNumber();
 
@@ -1957,7 +1957,7 @@ Int_t TColor::GetColor(Int_t r, Int_t g, Int_t b)
    // add it. Note name is of the form "#rrggbb" where rr, etc. are
    // hexadecimal numbers.
    color = new TColor(colors->GetLast()+1, rr, gg, bb,
-                      Form("#%02x%02x%02x", r, g, b));
+                      TString::Format("#%02x%02x%02x", r, g, b).Data());
 
    return color->GetNumber();
 }
@@ -1979,7 +1979,7 @@ Int_t TColor::GetColorBright(Int_t n)
    if (n < ncolors) color = (TColor*)colors->At(n);
    if (!color) return -1;
 
-   //Get the rgb of the the new bright color corresponding to color n
+   //Get the rgb of the new bright color corresponding to color n
    Float_t r,g,b;
    HLStoRGB(color->GetHue(), 1.2f*color->GetLight(), color->GetSaturation(), r, g, b);
 
@@ -1989,7 +1989,7 @@ Int_t TColor::GetColorBright(Int_t n)
    if (nb < ncolors) colorb = (TColor*)colors->At(nb);
    if (colorb) return nb;
    colorb = new TColor(nb,r,g,b);
-   colorb->SetName(Form("%s_bright",color->GetName()));
+   colorb->SetName(TString::Format("%s_bright",color->GetName()).Data());
    colors->AddAtAndExpand(colorb,nb);
    return nb;
 }
@@ -2011,7 +2011,7 @@ Int_t TColor::GetColorDark(Int_t n)
    if (n < ncolors) color = (TColor*)colors->At(n);
    if (!color) return -1;
 
-   //Get the rgb of the the new dark color corresponding to color n
+   //Get the rgb of the new dark color corresponding to color n
    Float_t r,g,b;
    HLStoRGB(color->GetHue(), 0.7f*color->GetLight(), color->GetSaturation(), r, g, b);
 
@@ -2021,7 +2021,7 @@ Int_t TColor::GetColorDark(Int_t n)
    if (nd < ncolors) colord = (TColor*)colors->At(nd);
    if (colord) return nd;
    colord = new TColor(nd,r,g,b);
-   colord->SetName(Form("%s_dark",color->GetName()));
+   colord->SetName(TString::Format("%s_dark",color->GetName()).Data());
    colors->AddAtAndExpand(colord,nd);
    return nd;
 }
@@ -2039,7 +2039,7 @@ Int_t TColor::GetColorTransparent(Int_t n, Float_t a)
    if (color) {
       TObjArray *colors = (TObjArray *)gROOT->GetListOfColors();
       Int_t ncolors = colors->GetSize();
-      TColor *col = 0;
+      TColor *col = nullptr;
       for (Int_t i = 0; i < ncolors; i++) {
          col = (TColor *)colors->At(i);
          if (col) {
@@ -2051,7 +2051,7 @@ Int_t TColor::GetColorTransparent(Int_t n, Float_t a)
       TColor *colort = new TColor(gROOT->GetListOfColors()->GetLast()+1,
                                   color->GetRed(), color->GetGreen(), color->GetBlue());
       colort->SetAlpha(a);
-      colort->SetName(Form("%s_transparent",color->GetName()));
+      colort->SetName(TString::Format("%s_transparent",color->GetName()).Data());
       return colort->GetNumber();
    } else {
       ::Error("TColor::GetColorTransparent", "color with index %d not defined", n);

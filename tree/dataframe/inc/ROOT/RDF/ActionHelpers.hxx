@@ -327,7 +327,7 @@ public:
 
    std::string GetActionName()
    {
-      return std::string(fResultHist->IsA()->GetName()) + "<BR/>" + std::string(fResultHist->GetName());
+      return std::string(fResultHist->IsA()->GetName()) + "\\n" + std::string(fResultHist->GetName());
    }
 
    BufferedFillHelper MakeNew(void *newResult)
@@ -549,7 +549,7 @@ public:
    template <typename T = HIST, std::enable_if_t<std::is_base_of<TObject, T>::value, int> = 0>
    std::string GetActionName()
    {
-      return std::string(fObjects[0]->IsA()->GetName()) + "<BR/>" + std::string(fObjects[0]->GetName());
+      return std::string(fObjects[0]->IsA()->GetName()) + "\\n" + std::string(fObjects[0]->GetName());
    }
 
    // if fObjects is not derived from TObject, indicate it is some other object
@@ -1122,6 +1122,7 @@ template <typename ResultType>
 class R__CLING_PTRCHECK(off) SumHelper : public RActionImpl<SumHelper<ResultType>> {
    const std::shared_ptr<ResultType> fResultSum;
    Results<ResultType> fSums;
+   Results<ResultType> fCompensations;
 
    /// Evaluate neutral element for this type and the sum operation.
    /// This is assumed to be any_value - any_value if operator- is defined
@@ -1142,26 +1143,45 @@ public:
    SumHelper(SumHelper &&) = default;
    SumHelper(const SumHelper &) = delete;
    SumHelper(const std::shared_ptr<ResultType> &sumVPtr, const unsigned int nSlots)
-      : fResultSum(sumVPtr), fSums(nSlots, NeutralElement(*sumVPtr, -1))
+      : fResultSum(sumVPtr), fSums(nSlots, NeutralElement(*sumVPtr, -1)),
+        fCompensations(nSlots, NeutralElement(*sumVPtr, -1))
    {
    }
-
    void InitTask(TTreeReader *, unsigned int) {}
-   void Exec(unsigned int slot, ResultType v) { fSums[slot] += v; }
+
+   void Exec(unsigned int slot, ResultType x)
+   {
+      // Kahan Sum:
+      ResultType y = x - fCompensations[slot];
+      ResultType t = fSums[slot] + y;
+      fCompensations[slot] = (t - fSums[slot]) - y;
+      fSums[slot] = t;
+   }
 
    template <typename T, std::enable_if_t<IsDataContainer<T>::value, int> = 0>
    void Exec(unsigned int slot, const T &vs)
    {
-      for (auto &&v : vs)
-         fSums[slot] += static_cast<ResultType>(v);
+      for (auto &&v : vs) {
+         Exec(slot, v);
+      }
    }
 
    void Initialize() { /* noop */}
 
    void Finalize()
    {
-      for (auto &m : fSums)
-         *fResultSum += m;
+      ResultType sum(NeutralElement(ResultType{}, -1));
+      ResultType compensation(NeutralElement(ResultType{}, -1));
+      ResultType y(NeutralElement(ResultType{}, -1));
+      ResultType t(NeutralElement(ResultType{}, -1));
+      for (auto &m : fSums) {
+         // Kahan Sum:
+         y = m - compensation;
+         t = sum + y;
+         compensation = (t - sum) - y;
+         sum = t;
+      }
+      *fResultSum += sum;
    }
 
    // Helper functions for RMergeableValue
@@ -1187,6 +1207,7 @@ class R__CLING_PTRCHECK(off) MeanHelper : public RActionImpl<MeanHelper> {
    std::vector<ULong64_t> fCounts;
    std::vector<double> fSums;
    std::vector<double> fPartialMeans;
+   std::vector<double> fCompensations;
 
 public:
    MeanHelper(const std::shared_ptr<double> &meanVPtr, const unsigned int nSlots);
@@ -1199,8 +1220,13 @@ public:
    void Exec(unsigned int slot, const T &vs)
    {
       for (auto &&v : vs) {
-         fSums[slot] += v;
+
          fCounts[slot]++;
+         // Kahan Sum:
+         double y = v - fCompensations[slot];
+         double t = fSums[slot] + y;
+         fCompensations[slot] = (t - fSums[slot]) - y;
+         fSums[slot] = t;
       }
    }
 
@@ -1292,10 +1318,11 @@ private:
    using Display_t = ROOT::RDF::RDisplay;
    const std::shared_ptr<Display_t> fDisplayerHelper;
    const std::shared_ptr<PrevNodeType> fPrevNode;
+   size_t fEntriesToProcess;
 
 public:
-   DisplayHelper(const std::shared_ptr<Display_t> &d, const std::shared_ptr<PrevNodeType> &prevNode)
-      : fDisplayerHelper(d), fPrevNode(prevNode)
+   DisplayHelper(size_t nRows, const std::shared_ptr<Display_t> &d, const std::shared_ptr<PrevNodeType> &prevNode)
+      : fDisplayerHelper(d), fPrevNode(prevNode), fEntriesToProcess(nRows)
    {
    }
    DisplayHelper(DisplayHelper &&) = default;
@@ -1305,8 +1332,17 @@ public:
    template <typename... Columns>
    void Exec(unsigned int, Columns &... columns)
    {
+      if (fEntriesToProcess == 0)
+         return;
+
       fDisplayerHelper->AddRow(columns...);
-      if (!fDisplayerHelper->HasNext()) {
+      --fEntriesToProcess;
+
+      if (fEntriesToProcess == 0) {
+         // No more entries to process. Send a one-time signal that this node
+         // of the graph is done. It is important that the 'StopProcessing'
+         // method is only called once from this helper, otherwise it would seem
+         // like more than one operation has completed its work.
          fPrevNode->StopProcessing();
       }
    }

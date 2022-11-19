@@ -1235,6 +1235,7 @@ void TDirectory::SetName(const char* newname)
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Encode the name and cycle into buffer like: "aap;2".
+/// @note if `cycle` is 9999, its value will not appear in the output and `name` will be used verbatim.
 
 void TDirectory::EncodeNameCycle(char *buffer, const char *name, Short_t cycle)
 {
@@ -1248,12 +1249,21 @@ void TDirectory::EncodeNameCycle(char *buffer, const char *name, Short_t cycle)
 /// Decode a namecycle "aap;2" into name "aap" and cycle "2". Destination
 /// buffer size for name (including string terminator) should be specified in
 /// namesize.
+/// @note Edge cases:
+///   - If the number after the `;` is larger than `SHORT_MAX`, cycle is set to `0`.
+///   - If name ends with `;*`, cycle is set to 10000`. 
+///   - In all other cases, i.e. when number is not a digit or buffer is a nullptr, cycle is set to `9999`.
 
 void TDirectory::DecodeNameCycle(const char *buffer, char *name, Short_t &cycle,
                                  const size_t namesize)
 {
+   if (!buffer) {
+      cycle = 9999;
+      return;
+   }
+   
    size_t len = 0;
-   const char *ni = buffer ? strchr(buffer, ';') : nullptr;
+   const char *ni = strchr(buffer, ';');
 
    if (ni) {
       // Found ';'
@@ -1269,7 +1279,7 @@ void TDirectory::DecodeNameCycle(const char *buffer, char *name, Short_t &cycle,
       if (len > namesize-1ul) len = namesize-1;  // accommodate string terminator
    } else {
       ::Warning("TDirectory::DecodeNameCycle",
-         "Using unsafe version: invoke this metod by specifying the buffer size");
+         "Using unsafe version: invoke this method by specifying the buffer size");
    }
 
    strncpy(name, buffer, len);

@@ -27,19 +27,19 @@ class RooRealVar;
 class RooBinning : public RooAbsBinning {
 public:
 
-  RooBinning(double xlo = -RooNumber::infinity(), double xhi = RooNumber::infinity(), const char* name = 0);
-  RooBinning(Int_t nBins, double xlo, double xhi, const char* name = 0);
-  RooBinning(Int_t nBins, const double* boundaries, const char* name = 0);
-  RooBinning(const RooBinning& other, const char* name = 0);
-  RooAbsBinning* clone(const char* name = 0) const override { return new RooBinning(*this,name?name:GetName()); }
+  RooBinning(double xlo = -RooNumber::infinity(), double xhi = RooNumber::infinity(), const char* name = nullptr);
+  RooBinning(Int_t nBins, double xlo, double xhi, const char* name = nullptr);
+  RooBinning(Int_t nBins, const double* boundaries, const char* name = nullptr);
+  RooBinning(const RooBinning& other, const char* name = nullptr);
+  RooAbsBinning* clone(const char* name = nullptr) const override { return new RooBinning(*this,name?name:GetName()); }
   ~RooBinning() override;
 
   /// Return the number boundaries
   Int_t numBoundaries() const override {
     return _nbins+1;
   }
-  Int_t binNumber(double x) const override;
-  Int_t rawBinNumber(double x) const override;
+  void binNumbers(double const * x, int * bins, std::size_t n, int coef) const override;
+  Int_t rawBinNumber(double x) const;
   virtual double nearestBoundary(double x) const;
 
   void setRange(double xlo, double xhi) override;
@@ -69,8 +69,6 @@ public:
   void addBoundaryPair(double boundary, double mirrorPoint = 0);
   void addUniform(Int_t nBins, double xlo, double xhi);
   bool removeBoundary(double boundary);
-
-  bool hasBoundary(double boundary);
 
 protected:
 

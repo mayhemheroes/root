@@ -47,7 +47,7 @@ class R__CLING_PTRCHECK(off) RVariedAction final : public RActionBase {
    std::vector<std::shared_ptr<PrevNodeType>> fPrevNodes;
 
    /// Column readers per slot (outer dimension), per variation and per input column (inner dimension, std::array).
-   std::vector<std::vector<std::array<std::shared_ptr<RColumnReaderBase>, ColumnTypes_t::list_size>>> fInputValues;
+   std::vector<std::vector<std::array<RColumnReaderBase *, ColumnTypes_t::list_size>>> fInputValues;
 
    /// The nth flag signals whether the nth input column is a custom column or not.
    std::array<bool, ColumnTypes_t::list_size> fIsDefine;
@@ -107,7 +107,7 @@ public:
 
       // get readers for each systematic variation
       for (const auto &variation : GetVariations())
-         fInputValues[slot].emplace_back(MakeColumnReaders(slot, r, ColumnTypes_t{}, info, variation));
+         fInputValues[slot].emplace_back(GetColumnReaders(slot, r, ColumnTypes_t{}, info, variation));
 
       std::for_each(fHelpers.begin(), fHelpers.end(), [=](Helper &h) { h.InitTask(r, slot); });
    }
@@ -189,7 +189,7 @@ public:
       return std::make_unique<RDFDetail::RMergeableVariationsBase>(std::move(keys), std::move(values));
    }
 
-   [[noreturn]] std::unique_ptr<RActionBase> MakeVariedAction(std::vector<void *> &&)
+   [[noreturn]] std::unique_ptr<RActionBase> MakeVariedAction(std::vector<void *> &&) final
    {
       throw std::logic_error("Cannot produce a varied action from a varied action.");
    }

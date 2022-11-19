@@ -623,7 +623,7 @@ TH1::TH1(): TNamed(), TAttLine(), TAttFill(), TAttMarker()
 
 TH1::~TH1()
 {
-   if (!TestBit(kNotDeleted)) {
+   if (ROOT::Detail::HasBeenDeleted(this)) {
       return;
    }
    delete[] fIntegral;
@@ -644,7 +644,7 @@ TH1::~TH1()
       //and may have been already deleted.
       while ((obj  = fFunctions->First())) {
          while(fFunctions->Remove(obj)) { }
-         if (!obj->TestBit(kNotDeleted)) {
+         if (ROOT::Detail::HasBeenDeleted(obj)) {
             break;
          }
          delete obj;
@@ -727,16 +727,6 @@ TH1::TH1(const char *name,const char *title,Int_t nbins,const Double_t *xbins)
    if (xbins) fXaxis.Set(nbins,xbins);
    else       fXaxis.Set(nbins,0,1);
    fNcells = fXaxis.GetNbins()+2;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-/// Private copy constructor.
-/// One should use the copy constructor of the derived classes (e.g. TH1D, TH1F ...).
-/// The list of functions is not copied. (Use Clone() if needed)
-
-TH1::TH1(const TH1 &h) : TNamed(), TAttLine(), TAttFill(), TAttMarker()
-{
-   ((TH1&)h).Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -4222,7 +4212,7 @@ TFitResultPtr TH1::Fit(const char *fname ,Option_t *option ,Option_t *goption, D
 /// calling the following functions:
 ///
 /// ~~~ {.cpp}
-///      TVirtualFitter::Fitter(myhist)->SetFCN(MyFittingFunction)
+///      TVirtualFitter::Fitter(myhist)->SetFCN(MyFittingFunction);
 /// ~~~
 ///
 /// where MyFittingFunction is of type:
@@ -4242,9 +4232,9 @@ TFitResultPtr TH1::Fit(const char *fname ,Option_t *option ,Option_t *goption, D
 ///
 /// If the bin errors are not known, one should use the fit option "W", which gives a weight=1 for each bin (it is an unweighted least-square
 /// fit). When using option "WW" the empty bins will be also considered in the chi-square fit with an error of 1.
-/// Note that in this fitting case (option "W" or "WW ) the resulting fitted parameter errors
+/// Note that in this fitting case (option "W" or "WW") the resulting fitted parameter errors
 /// are corrected by the obtained chi2 value using this scaling expression:
-///`errorp *= sqrt(chisquare/(ndf-1))` as it is done when fitting a TGraph with
+/// `errorp *= sqrt(chisquare/(ndf-1))` as it is done when fitting a TGraph with
 /// no point errors.
 ///
 /// #### Excluding points
@@ -4261,7 +4251,7 @@ TFitResultPtr TH1::Fit(const char *fname ,Option_t *option ,Option_t *goption, D
 ///
 /// ~~~ {.cpp}
 ///     h.Fit("myFunction", "0"); // fit, store function but do not draw
-///     h.Draw(); function is not drawn
+///     h.Draw(); // function is not drawn
 ///     h.GetFunction("myFunction")->ResetBit(TF1::kNotDraw);
 ///     h.Draw();  // function is visible again
 /// ~~~
@@ -9407,7 +9397,7 @@ TH1C::~TH1C()
 
 TH1C::TH1C(const TH1C &h1c) : TH1(), TArrayC()
 {
-   ((TH1C&)h1c).Copy(*this);
+   h1c.TH1C::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -9462,7 +9452,8 @@ void TH1C::SetBinsLength(Int_t n)
 
 TH1C& TH1C::operator=(const TH1C &h1)
 {
-   if (this != &h1)  ((TH1C&)h1).Copy(*this);
+   if (this != &h1)
+      h1.TH1C::Copy(*this);
    return *this;
 }
 
@@ -9589,7 +9580,7 @@ TH1S::~TH1S()
 
 TH1S::TH1S(const TH1S &h1s) : TH1(), TArrayS()
 {
-   ((TH1S&)h1s).Copy(*this);
+   h1s.TH1S::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -9644,7 +9635,8 @@ void TH1S::SetBinsLength(Int_t n)
 
 TH1S& TH1S::operator=(const TH1S &h1)
 {
-   if (this != &h1)  ((TH1S&)h1).Copy(*this);
+   if (this != &h1)
+      h1.TH1S::Copy(*this);
    return *this;
 }
 
@@ -9772,7 +9764,7 @@ TH1I::~TH1I()
 
 TH1I::TH1I(const TH1I &h1i) : TH1(), TArrayI()
 {
-   ((TH1I&)h1i).Copy(*this);
+   h1i.TH1I::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -9827,7 +9819,8 @@ void TH1I::SetBinsLength(Int_t n)
 
 TH1I& TH1I::operator=(const TH1I &h1)
 {
-   if (this != &h1)  ((TH1I&)h1).Copy(*this);
+   if (this != &h1)
+      h1.TH1I::Copy(*this);
    return *this;
 }
 
@@ -9963,9 +9956,9 @@ TH1F::TH1F(const TVectorF &v)
 /// Copy Constructor.
 /// The list of functions is not copied. (Use Clone() if needed)
 
-TH1F::TH1F(const TH1F &h) : TH1(), TArrayF()
+TH1F::TH1F(const TH1F &h1f) : TH1(), TArrayF()
 {
-   ((TH1F&)h).Copy(*this);
+   h1f.TH1F::Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -10006,9 +9999,10 @@ void TH1F::SetBinsLength(Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Operator =
 
-TH1F& TH1F::operator=(const TH1F &h1)
+TH1F& TH1F::operator=(const TH1F &h1f)
 {
-   if (this != &h1)  ((TH1F&)h1).Copy(*this);
+   if (this != &h1f)
+      h1f.TH1F::Copy(*this);
    return *this;
 }
 
@@ -10151,7 +10145,8 @@ TH1D::~TH1D()
 
 TH1D::TH1D(const TH1D &h1d) : TH1(), TArrayD()
 {
-   ((TH1D&)h1d).Copy(*this);
+   // intentially call virtual method to warn if TProfile is copying
+   h1d.Copy(*this);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -10185,9 +10180,11 @@ void TH1D::SetBinsLength(Int_t n)
 ////////////////////////////////////////////////////////////////////////////////
 /// Operator =
 
-TH1D& TH1D::operator=(const TH1D &h1)
+TH1D& TH1D::operator=(const TH1D &h1d)
 {
-   if (this != &h1)  ((TH1D&)h1).Copy(*this);
+   // intentially call virtual method to warn if TProfile is copying
+   if (this != &h1d)
+      h1d.Copy(*this);
    return *this;
 }
 

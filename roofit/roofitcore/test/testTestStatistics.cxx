@@ -1,22 +1,23 @@
-/*
- * testNLLVar.cxx
- *
- *  Created on: 8 Oct 2020
- *      Author: Stephan Hageboeck
- */
+// Tests for RooNLLVar and the other test statistics
+// Authors: Stephan Hageboeck, CERN 10/2020
+//          Jonas Rembser, CERN 10/2022
 
-#include <RooRealVar.h>
-#include <RooGenericPdf.h>
+#include <RooBinning.h>
 #include <RooDataHist.h>
 #include <RooDataSet.h>
 #include <RooFitResult.h>
-#include <RooBinning.h>
-#include <RooPlot.h>
+#include <RooGaussian.h>
+#include <RooGenericPdf.h>
+#include <RooNLLVar.h>
 #include <RooRandom.h>
+#include <RooPlot.h>
+#include <RooRealVar.h>
 
 #include <gtest/gtest.h>
 
 #include <memory>
+
+const bool batchMode = true;
 
 TEST(RooNLLVar, IntegrateBins) {
   RooRandom::randomGenerator()->SetSeed(1337ul);
@@ -48,7 +49,7 @@ TEST(RooNLLVar, IntegrateBins) {
 
   a.setVal(3.);
   std::unique_ptr<RooFitResult> fit2( pdf.fitTo(data, RooFit::Save(), RooFit::PrintLevel(-1),
-      RooFit::BatchMode(true),
+      RooFit::BatchMode(batchMode),
       RooFit::IntegrateBins(1.E-3)) );
   pdf.plotOn(frame.get(), RooFit::LineColor(kBlue), RooFit::Name("highRes"));
 
@@ -68,9 +69,6 @@ TEST(RooNLLVar, IntegrateBins) {
 
   EXPECT_GT(frame->chiSquare("standard", "data", 1) * 0.9, frame->chiSquare("highRes",  "data", 1))
       << "Expect chi2/ndf at least 10% better.";
-
-//  fit1->Print();
-//  fit2->Print();
 }
 
 
@@ -107,14 +105,14 @@ TEST(RooNLLVar, IntegrateBins_SubRange) {
   std::unique_ptr<RooFitResult> fit1( pdf.fitTo(data, RooFit::Save(), RooFit::PrintLevel(-1),
       RooFit::Optimize(0),
       RooFit::Range("range"),
-      RooFit::BatchMode(true))  );
+      RooFit::BatchMode(batchMode))  );
   pdf.plotOn(frame.get(), RooFit::LineColor(kRed), RooFit::Name("standard"));
 
   a.setVal(3.);
   std::unique_ptr<RooFitResult> fit2( pdf.fitTo(data, RooFit::Save(), RooFit::PrintLevel(-1),
       RooFit::Optimize(0),
       RooFit::Range("range"),
-      RooFit::BatchMode(true),
+      RooFit::BatchMode(batchMode),
       RooFit::IntegrateBins(1.E-3)) );
   pdf.plotOn(frame.get(), RooFit::LineColor(kBlue), RooFit::Name("highRes"));
 
@@ -134,9 +132,6 @@ TEST(RooNLLVar, IntegrateBins_SubRange) {
 
   EXPECT_GT(frame->chiSquare("standard", "data", 1) * 0.9, frame->chiSquare("highRes",  "data", 1))
       << "Expect chi2/ndf at least 10% better.";
-
-//  fit1->Print();
-//  fit2->Print();
 }
 
 /// Prepare a RooDataSet that looks like the one that HistFactory uses:
@@ -179,7 +174,7 @@ TEST(RooNLLVar, IntegrateBins_CustomBinning) {
   a.setVal(3.);
   std::unique_ptr<RooFitResult> fit2( pdf.fitTo(data, RooFit::Save(), RooFit::PrintLevel(-1),
       RooFit::Optimize(0),
-      RooFit::BatchMode(true),
+      RooFit::BatchMode(batchMode),
       RooFit::IntegrateBins(1.E-3)) );
   pdf.plotOn(frame.get(), RooFit::LineColor(kBlue), RooFit::Name("highRes"));
 
@@ -202,9 +197,6 @@ TEST(RooNLLVar, IntegrateBins_CustomBinning) {
   // data hist, we don't get those jumps.
   EXPECT_GT(frame->chiSquare("standard", "dataHist", 1) * 0.9, frame->chiSquare("highRes",  "dataHist", 1))
       << "Expect chi2/ndf at least 10% better.";
-
-//  fit1->Print();
-//  fit2->Print();
 }
 
 
@@ -226,14 +218,14 @@ TEST(RooNLLVar, IntegrateBins_RooDataHist) {
 
   a.setVal(3.);
   std::unique_ptr<RooFitResult> fit1( pdf.fitTo(*data, RooFit::Save(), RooFit::PrintLevel(-1),
-      RooFit::BatchMode(true),
+      RooFit::BatchMode(batchMode),
       RooFit::IntegrateBins(-1.) // Disable forcefully
       ) );
   pdf.plotOn(frame.get(), RooFit::LineColor(kRed), RooFit::Name("standard"));
 
   a.setVal(3.);
   std::unique_ptr<RooFitResult> fit2( pdf.fitTo(*data, RooFit::Save(), RooFit::PrintLevel(-1),
-      RooFit::BatchMode(true),
+      RooFit::BatchMode(batchMode),
       RooFit::IntegrateBins(0.) // Auto-enable for all RooDataHists.
       ) );
   pdf.plotOn(frame.get(), RooFit::LineColor(kBlue), RooFit::Name("highRes"));
@@ -254,9 +246,6 @@ TEST(RooNLLVar, IntegrateBins_RooDataHist) {
 
   EXPECT_GT(frame->chiSquare("standard", "data", 1) * 0.9, frame->chiSquare("highRes",  "data", 1))
       << "Expect chi2/ndf at least 10% better.";
-
-//  fit1->Print();
-//  fit2->Print();
 }
 
 
@@ -283,7 +272,7 @@ TEST(RooChi2Var, IntegrateBins) {
 
   a.setVal(3.);
   std::unique_ptr<RooFitResult> fit2( pdf.chi2FitTo(*dataH, RooFit::Save(), RooFit::PrintLevel(-1),
-      RooFit::BatchMode(true),
+      RooFit::BatchMode(batchMode),
       RooFit::IntegrateBins(1.E-3)) );
   pdf.plotOn(frame.get(), RooFit::LineColor(kBlue), RooFit::Name("highRes"));
 
@@ -303,7 +292,31 @@ TEST(RooChi2Var, IntegrateBins) {
 
   EXPECT_GT(frame->chiSquare("standard", nullptr, 1) * 0.9, frame->chiSquare("highRes", nullptr, 1))
       << "Expect chi2/ndf at least 10% better.";
+}
 
-//  fit1->Print();
-//  fit2->Print();
+
+/// Verifies that a ranged RooNLLVar has still the correct value when copied,
+/// as it happens when it is plotted Covers JIRA ticket ROOT-9752.
+TEST(RooNLLVar, CopyRangedNLL)
+{
+   RooRealVar x("x", "x", 0, 10);
+   RooRealVar mean("mean", "mean", 5, 0, 10);
+   RooRealVar sigma("sigma", "sigma", 0.5, 0.01, 5);
+   RooGaussian model("model", "model", x, mean, sigma);
+
+   x.setRange("fitrange", 0, 10);
+
+   std::unique_ptr<RooDataSet> ds{model.generate(x, 20)};
+
+   // This bug is related to the implementation details of the old test statistics, so BatchMode is forced to be off
+   using namespace RooFit;
+   std::unique_ptr<RooNLLVar> nll{static_cast<RooNLLVar *>(model.createNLL(*ds, BatchMode("off")))};
+   std::unique_ptr<RooNLLVar> nllrange{static_cast<RooNLLVar *>(model.createNLL(*ds, Range("fitrange"), BatchMode("off")))};
+
+   auto nllClone = std::make_unique<RooNLLVar>(*nll);
+   auto nllrangeClone = std::make_unique<RooNLLVar>(*nllrange);
+
+   EXPECT_FLOAT_EQ(nll->getVal(), nllClone->getVal());
+   EXPECT_FLOAT_EQ(nll->getVal(), nllrange->getVal());
+   EXPECT_FLOAT_EQ(nllrange->getVal(), nllrangeClone->getVal());
 }

@@ -298,7 +298,8 @@ void TApplication::InitializeGraphics()
       UInt_t w, h;
       if (gVirtualX) {
          gVirtualX->GetGeometry(-1, x, y, w, h);
-         if (h > 0 && h < 1000) gStyle->SetScreenFactor(0.0011*h);
+         if (h > 0)
+            gStyle->SetScreenFactor(0.001 * h);
       }
    }
 }
@@ -409,6 +410,7 @@ void TApplication::GetOptions(Int_t *argc, char **argv)
          } else if (gSystem->Load("libROOTWebDisplay") >= 0) {
             gROOT->SetWebDisplay(argw.Data());
             gEnv->SetValue("Gui.Factory", "web");
+            gEnv->SetValue("TreeViewer.Name", "RTreeViewer");
          } else {
             Error("GetOptions", "--web option not supported, ROOT should be built with at least c++14 enabled");
          }
@@ -1855,7 +1857,7 @@ TApplication *TApplication::Open(const char *url,
    // If new session on a known machine pass the number as option
    if (nnew > 0) {
       nnew++;
-      nu.SetOptions(Form("%d", nnew));
+      nu.SetOptions(TString::Format("%d", nnew).Data());
    }
 
    // Instantiate the TApplication object to be run

@@ -245,7 +245,7 @@ RooVectorDataStore::RooVectorDataStore(const RooVectorDataStore& other, const Ro
 }
 
 
-RooAbsDataStore* RooVectorDataStore::reduce(RooStringView name, RooStringView title,
+std::unique_ptr<RooAbsDataStore> RooVectorDataStore::reduce(RooStringView name, RooStringView title,
                         const RooArgSet& vars, const RooFormulaVar* cutVar, const char* cutRange,
                         std::size_t nStart, std::size_t nStop) {
   RooArgSet tmp(vars) ;
@@ -253,7 +253,7 @@ RooAbsDataStore* RooVectorDataStore::reduce(RooStringView name, RooStringView ti
     tmp.add(*_wgtVar) ;
   }
   const char* wgtVarName = _wgtVar ? _wgtVar->GetName() : nullptr;
-  return new RooVectorDataStore(name, title, *this, tmp, cutVar, cutRange, nStart, nStop, wgtVarName);
+  return std::make_unique<RooVectorDataStore>(name, title, *this, tmp, cutVar, cutRange, nStart, nStop, wgtVarName);
 }
 
 
@@ -358,7 +358,7 @@ const RooArgSet* RooVectorDataStore::get(Int_t index) const
   }
 
   for (const auto fullRealP : _realfStoreList) {
-    fullRealP->get(index);
+    fullRealP->load(index);
   }
 
   for (const auto catP : _catStoreList) {
@@ -384,43 +384,6 @@ const RooArgSet* RooVectorDataStore::get(Int_t index) const
 
 
 ////////////////////////////////////////////////////////////////////////////////
-/// Load the n-th data point (n='index') into the variables of this dataset,
-/// and return a pointer to the RooArgSet that holds them.
-const RooArgSet* RooVectorDataStore::getNative(Int_t index) const
-{
-  if (index < 0 || static_cast<std::size_t>(index) >= size()) return 0;
-
-  for (const auto realV : _realStoreList) {
-    realV->loadToNative(index) ;
-  }
-
-  for (const auto fullRealP : _realfStoreList) {
-    fullRealP->loadToNative(index);
-  }
-
-  for (const auto catP : _catStoreList) {
-    catP->loadToNative(index);
-  }
-
-  if (_doDirtyProp) {
-    // Raise all dirty flags
-    for (auto var : _vars) {
-      var->setValueDirty() ; // This triggers recalculation of all clients
-    }
-  }
-
-  // Update current weight cache
-  _currentWeightIndex = index;
-
-  if (_cache) {
-    _cache->getNative(index) ;
-  }
-
-  return &_vars;
-}
-
-
-////////////////////////////////////////////////////////////////////////////////
 /// Return the error of the current weight.
 /// @param[in] etype Switch between simple Poisson or sum-of-weights statistics
 
@@ -437,7 +400,7 @@ double RooVectorDataStore::weightError(RooAbsData::ErrorType etype) const
 
    } else if (_wgtVar) {
 
-    // We have a a weight variable, use that info
+    // We have a weight variable, use that info
     if (_wgtVar->hasAsymError()) {
       return ( _wgtVar->getAsymErrorHi() - _wgtVar->getAsymErrorLo() ) / 2 ;
     } else if (_wgtVar->hasError(false)) {
@@ -503,7 +466,7 @@ void RooVectorDataStore::weightError(double& lo, double& hi, RooAbsData::ErrorTy
 
   } else if (_wgtVar) {
 
-    // We have a a weight variable, use that info
+    // We have a weight variable, use that info
     if (_wgtVar->hasAsymError()) {
       hi = _wgtVar->getAsymErrorHi() ;
       lo = _wgtVar->getAsymErrorLo() ;
@@ -687,7 +650,7 @@ RooAbsArg* RooVectorDataStore::addColumn(RooAbsArg& newVar, bool /*adjustRange*/
   }
 
   for (std::size_t i=0; i < numEvt; i++) {
-    getNative(i) ;
+    get(i) ;
 
     newVarClone->syncCache(&_vars) ;
     valHolder->copyCache(newVarClone) ;
@@ -902,7 +865,7 @@ void RooVectorDataStore::cacheArgs(const RooAbsArg* owner, RooArgSet& newVarSet,
   const std::size_t numEvt = size();
   newCache->reserve(numEvt);
   for (std::size_t i=0; i < numEvt; i++) {
-    getNative(i) ;
+    get(i) ;
     if (weight()!=0 || !skipZeroWeights) {
       for (unsigned int j = 0; j < cloneSet.size(); ++j) {
         auto& cloneArg = cloneSet[j];

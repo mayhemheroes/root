@@ -147,10 +147,10 @@ void RooAddGenContext::initGenerator(const RooArgSet &theEvent)
 
   if (_isModel) {
     RooAddModel* amod = (RooAddModel*) _pdf ;
-    _mcache = amod->getProjCache(_vars.get()) ;
+    _pcache = amod->getProjCache(_vars.get()) ;
   } else {
     RooAddPdf* apdf = (RooAddPdf*) _pdf ;
-    _pcache = apdf->getProjCache(_vars.get(),nullptr,"FULL_RANGE_ADDGENCONTEXT") ;
+    _pcache = apdf->getProjCache(_vars.get(),nullptr) ;
   }
 
   // Forward initGenerator call to all components
@@ -205,7 +205,7 @@ void RooAddGenContext::updateThresholds()
     }
   };
 
-  _isModel ? updateThresholdsImpl(static_cast<RooAddModel*>(_pdf), _mcache)
+  _isModel ? updateThresholdsImpl(static_cast<RooAddModel*>(_pdf), _pcache)
            : updateThresholdsImpl(static_cast<RooAddPdf*>(_pdf), _pcache);
 }
 

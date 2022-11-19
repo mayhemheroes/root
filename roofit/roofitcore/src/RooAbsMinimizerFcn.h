@@ -30,7 +30,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include <memory>  // unique_ptr
+#include <memory> // unique_ptr
 
 // forward declaration
 class RooMinimizer;
@@ -38,15 +38,17 @@ class RooMinimizer;
 class RooAbsMinimizerFcn {
 
 public:
-   RooAbsMinimizerFcn(RooArgList paramList, RooMinimizer *context, bool verbose = false);
+   RooAbsMinimizerFcn(RooArgList paramList, RooMinimizer *context);
    RooAbsMinimizerFcn(const RooAbsMinimizerFcn &other);
    virtual ~RooAbsMinimizerFcn() = default;
 
    /// Informs Minuit through its parameter_settings vector of RooFit parameter properties.
-   bool synchronizeParameterSettings(std::vector<ROOT::Fit::ParameterSettings> &parameters, bool optConst, bool verbose);
-   /// Like synchronizeParameterSettings, Synchronize informs Minuit through its parameter_settings vector of RooFit parameter properties,
-   /// but Synchronize can be overridden to e.g. also include gradient strategy synchronization in subclasses.
-   virtual bool Synchronize(std::vector<ROOT::Fit::ParameterSettings> &parameters, bool optConst, bool verbose);
+   bool synchronizeParameterSettings(std::vector<ROOT::Fit::ParameterSettings> &parameters, bool optConst);
+   /// Like synchronizeParameterSettings, Synchronize informs Minuit through
+   /// its parameter_settings vector of RooFit parameter properties, but
+   /// Synchronize can be overridden to e.g. also include gradient strategy
+   /// synchronization in subclasses.
+   virtual bool Synchronize(std::vector<ROOT::Fit::ParameterSettings> &parameters, bool optConst);
 
    RooArgList *GetFloatParamList() { return _floatParamList.get(); }
    RooArgList *GetConstParamList() { return _constParamList.get(); }
@@ -64,11 +66,10 @@ public:
    void SetRecoverFromNaNStrength(double strength) { _recoverFromNaNStrength = strength; }
    void SetPrintEvalErrors(Int_t numEvalErrors) { _printEvalErrors = numEvalErrors; }
    double &GetMaxFCN() { return _maxFCN; }
-   Int_t evalCounter() const {return _evalCounter; }
+   Int_t evalCounter() const { return _evalCounter; }
    void zeroEvalCount() { _evalCounter = 0; }
    /// Return a possible offset that's applied to the function to separate invalid function values from valid ones.
    double getOffset() const { return _funcOffset; }
-   void SetVerbose(bool flag = true) { _verbose = flag; }
 
    /// Put Minuit results back into RooFit objects.
    void BackProp(const ROOT::Fit::FitResult &results);
@@ -101,8 +102,10 @@ public:
 
    /// Enable or disable offsetting on the function to be minimized, which enhances numerical precision.
    virtual void setOffsetting(bool flag) = 0;
-   virtual bool fit(ROOT::Fit::Fitter&) const = 0;
-   virtual ROOT::Math::IMultiGenFunction* getMultiGenFcn() = 0;
+   virtual bool fit(ROOT::Fit::Fitter &) const = 0;
+   virtual ROOT::Math::IMultiGenFunction *getMultiGenFcn() = 0;
+
+   bool isVerbose() const;
 
 protected:
    void optimizeConstantTerms(bool constStatChange, bool constValChange);
@@ -142,7 +145,6 @@ protected:
 
    std::ofstream *_logfile = nullptr;
    bool _doEvalErrorWall{true};
-   bool _verbose;
 };
 
 #endif

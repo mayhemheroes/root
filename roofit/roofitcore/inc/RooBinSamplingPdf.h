@@ -32,7 +32,7 @@ public:
   RooBinSamplingPdf(const char *name, const char *title, RooAbsRealLValue& observable, RooAbsPdf& inputPdf,
       double epsilon = 1.E-4);
 
-  RooBinSamplingPdf(const RooBinSamplingPdf& other, const char* name = 0);
+  RooBinSamplingPdf(const RooBinSamplingPdf& other, const char* name = nullptr);
 
   TObject* clone(const char* newname) const override {
     return new RooBinSamplingPdf(*this, newname);
@@ -62,7 +62,7 @@ public:
   }
 
   /// Forwards to the PDF's implementation.
-  bool selfNormalized() const override { return _pdf->selfNormalized(); }
+  bool selfNormalized() const override { return true; }
 
   /// Forwards to the PDF's implementation.
   RooAbsReal* createIntegral(const RooArgSet& iset,

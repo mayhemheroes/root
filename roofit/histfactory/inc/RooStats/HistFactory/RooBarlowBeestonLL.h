@@ -29,7 +29,6 @@ public:
   RooBarlowBeestonLL(const char *name, const char *title, RooAbsReal& nll /*, const RooArgSet& observables*/);
   RooBarlowBeestonLL(const RooBarlowBeestonLL& other, const char* name=nullptr) ;
   TObject* clone(const char* newname) const override { return new RooBarlowBeestonLL(*this,newname); }
-  ~RooBarlowBeestonLL() override ;
 
   // A simple class to store the
   // necessary objects for a
@@ -51,10 +50,6 @@ public:
   void initializeBarlowCache();
   bool getParameters(const RooArgSet* depList, RooArgSet& outputSet, bool stripDisconnected=true) const override;
   RooAbsReal& nll() { return const_cast<RooAbsReal&>(_nll.arg()) ; }
-  bool redirectServersHook(const RooAbsCollection& /*newServerList*/,
-                                   bool /*mustReplaceAll*/,
-                                   bool /*nameChange*/,
-                                   bool /*isRecursive*/) override ;
   void setPdf(RooAbsPdf* pdf) { _pdf = pdf; }
   void setDataset(RooAbsData* data) { _data = data; }
 

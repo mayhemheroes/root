@@ -1,9 +1,12 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 import numpy as np
+import tensorflow as tf
 from tensorflow.keras.models import Model,Sequential
-from tensorflow.keras.layers import Input,Dense,Activation,ReLU,BatchNormalization,Conv2D,Reshape
+from tensorflow.keras.layers import Input,Dense,Activation,ReLU,LeakyReLU,BatchNormalization,Conv2D,Reshape,Concatenate,Add,Subtract,Multiply
 from tensorflow.keras.optimizers import SGD
 
 def generateFunctionalModel():
@@ -89,6 +92,56 @@ def generateReshapeModel():
     model.fit(x_train, y_train, epochs=10, batch_size=2)
     model.save('KerasModelReshape.h5')
 
+def generateConcatModel():
+    input_1 = Input(shape=(2,))
+    dense_1 = Dense(3)(input_1)
+    input_2 = Input(shape=(2,))
+    dense_2 = Dense(3)(input_2)
+    concat = Concatenate(axis=1)([dense_1,dense_2])
+    model  = Model(inputs=[input_1,input_2], outputs=concat)
+    
+    randomGenerator=np.random.RandomState(0)
+    x1_train = randomGenerator.rand(1,2)
+    x2_train = randomGenerator.rand(1,2)
+    y_train  = randomGenerator.rand(1,6)
+
+    model.compile(loss='mean_squared_error', optimizer=SGD(learning_rate=0.01))
+    model.fit([x1_train,x2_train], y_train, epochs=10, batch_size=1)
+    model.save('KerasModelConcatenate.h5')
+
+def generateBinaryOpModel():
+    input1 = Input(shape=(2, ))
+    input2 = Input(shape=(2,))
+    add    = Add()([input1, input2])
+    subtract = Subtract()([add, input1])
+    multiply = Multiply()([subtract, input2])
+    model    = Model(inputs=[input1, input2], outputs=multiply)
+
+    randomGenerator=np.random.RandomState(0)
+    x1_train = randomGenerator.rand(2,1)
+    x2_train = randomGenerator.rand(2,1)
+    y_train  = randomGenerator.rand(2,1)
+
+    model.compile(loss='mean_squared_error', optimizer=SGD(learning_rate=0.01))
+    model.fit([x1_train,x2_train], y_train, epochs=10, batch_size=2)
+    model.save('KerasModelBinaryOp.h5')
+
+def generateActivationModel():
+    input=Input(shape=(8,))
+    x=Dense(16, activation='tanh')(input)
+    x=Dense(32)(x)
+    x=LeakyReLU()(x)
+    output=Dense(4, activation='softmax')(x)
+    model=Model(inputs=input,outputs=output)
+
+    randomGenerator=np.random.RandomState(0)
+    x_train=randomGenerator.rand(1,8)
+    y_train=randomGenerator.rand(1,4)
+
+    model.compile(loss='mean_squared_error', optimizer=SGD(learning_rate=0.01))
+    model.fit(x_train, y_train, epochs=10, batch_size=1)
+    model.save('KerasModelActivations.h5')
+    
 
 generateFunctionalModel()
 generateSequentialModel()
@@ -96,3 +149,6 @@ generateBatchNormModel()
 generateConv2DModel_ValidPadding()
 generateConv2DModel_SamePadding()
 generateReshapeModel()
+generateConcatModel()
+generateBinaryOpModel()
+generateActivationModel()

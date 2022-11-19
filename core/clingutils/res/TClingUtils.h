@@ -371,9 +371,6 @@ EIOCtorCategory CheckIOConstructor(const clang::CXXRecordDecl*, const char *, co
 const clang::FunctionDecl* ClassInfo__HasMethod(const clang::DeclContext *cl, char const*, const cling::Interpreter& interp);
 
 //______________________________________________________________________________
-void CreateNameTypeMap(clang::CXXRecordDecl const&, std::map<std::string, ROOT::Internal::TSchemaType>&);
-
-//______________________________________________________________________________
 int ElementStreamer(std::ostream& finalString,
                     const clang::NamedDecl &forcontext,
                     const clang::QualType &qti,

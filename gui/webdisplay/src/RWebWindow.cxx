@@ -19,6 +19,7 @@
 #include "THttpCallArg.h"
 #include "TUrl.h"
 #include "TROOT.h"
+#include "TRandom3.h"
 
 #include <cstring>
 #include <cstdlib>
@@ -336,7 +337,6 @@ bool RWebWindow::ProcessBatchHolder(std::shared_ptr<THttpCallArg> &arg)
          }
       }
 
-
       for (auto &conn : fConn) {
          if (conn->fKey == key) {
             assert(!found_key); // indicate error if many same keys appears
@@ -421,9 +421,7 @@ unsigned RWebWindow::AddDisplayHandle(bool headless_mode, const std::string &key
 {
    std::lock_guard<std::mutex> grd(fConnMutex);
 
-   ++fConnCnt;
-
-   auto conn = std::make_shared<WebConn>(fConnCnt, headless_mode, key);
+   auto conn = std::make_shared<WebConn>(++fConnCnt, headless_mode, key);
 
    std::swap(conn->fDisplayHandle, handle);
 
@@ -433,23 +431,58 @@ unsigned RWebWindow::AddDisplayHandle(bool headless_mode, const std::string &key
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
+/// Find connection with specified key.
+/// Must be used under connection mutex lock
+
+std::shared_ptr<RWebWindow::WebConn> RWebWindow::_FindConnWithKey(const std::string &key) const
+{
+   if (key.empty())
+      return nullptr;
+
+   for (auto &entry : fPendingConn) {
+      if (entry->fKey == key)
+         return entry;
+   }
+
+   for (auto &conn : fConn) {
+      if (conn->fKey == key)
+         return conn;
+   }
+
+   return nullptr;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
 /// Returns true if provided key value already exists (in processes map or in existing connections)
 
 bool RWebWindow::HasKey(const std::string &key) const
 {
    std::lock_guard<std::mutex> grd(fConnMutex);
 
-   for (auto &entry : fPendingConn) {
-      if (entry->fKey == key)
-         return true;
-   }
+   auto conn = _FindConnWithKey(key);
 
-   for (auto &conn : fConn) {
-      if (conn->fKey == key)
-         return true;
-   }
+   return conn ? true : false;
 
    return false;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+/// Generate new unique key for the window
+
+std::string RWebWindow::GenerateKey() const
+{
+   int ntry = 100000;
+   TRandom3 rnd;
+   rnd.SetSeed();
+   std::string key;
+
+   do {
+      key = std::to_string(rnd.Integer(0x100000));
+   } while ((--ntry > 0) && HasKey(key));
+
+   if (ntry <= 0) key.clear();
+
+   return key;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -586,11 +619,17 @@ bool RWebWindow::ProcessWS(THttpCallArg &arg)
 
    if (arg.IsMethod("WS_CONNECT")) {
 
+      TUrl url;
+      url.SetOptions(arg.GetQuery());
+      bool check_key = RWebWindowWSHandler::GetBoolEnv("WebGui.OnetimeKey") == 1;
+
       std::lock_guard<std::mutex> grd(fConnMutex);
 
+      // refuse connection when number of connections exceed limit
+      if (fConnLimit && (fConn.size() >= fConnLimit))
+         return false;
+
       if (!fConnToken.empty()) {
-         TUrl url;
-         url.SetOptions(arg.GetQuery());
          // refuse connection which does not provide proper token
          if (!url.HasOption("token") || (fConnToken != url.GetValueFromOptions("token"))) {
             R__LOG_DEBUG(0, WebGUILog()) << "Refuse connection without proper token";
@@ -598,9 +637,27 @@ bool RWebWindow::ProcessWS(THttpCallArg &arg)
          }
       }
 
-      // refuse connection when number of connections exceed limit
-      if (fConnLimit && (fConn.size() >= fConnLimit))
-         return false;
+      if (check_key) {
+         if(!url.HasOption("key")) {
+            R__LOG_DEBUG(0, WebGUILog()) << "key parameter not provided in url";
+            return false;
+         }
+
+         auto key = url.GetValueFromOptions("key");
+
+         auto conn = _FindConnWithKey(key);
+         if (!conn) {
+            R__LOG_ERROR(WebGUILog()) << "connection with key " << key << " not found ";
+            return false;
+         }
+
+         if (conn->fKeyUsed > 0) {
+            R__LOG_ERROR(WebGUILog()) << "key " << key << " was used for establishing connection, call ShowWindow again";
+            return false;
+         }
+
+         conn->fKeyUsed = 1;
+      }
 
       return true;
    }
@@ -621,8 +678,17 @@ bool RWebWindow::ProcessWS(THttpCallArg &arg)
 
       auto conn = RemoveConnection(arg.GetWSId());
 
-      if (conn)
+      if (conn) {
          ProvideQueueEntry(conn->fConnId, kind_Disconnect, ""s);
+         if (conn->fKeyUsed < 0) {
+            // case when same handle want to be reused by client with new key
+            std::lock_guard<std::mutex> grd(fConnMutex);
+            conn->fKeyUsed = 0;
+            conn->fConnId = ++fConnCnt; // change connection id to avoid confusion
+            conn->ResetData();
+            fPendingConn.emplace_back(conn);
+         }
+      }
 
       return true;
    }
@@ -732,6 +798,20 @@ bool RWebWindow::ProcessWS(THttpCallArg &arg)
          if (iter != conn->fEmbed.end()) {
             iter->second->ProvideQueueEntry(conn->fConnId, kind_Disconnect, ""s);
             conn->fEmbed.erase(iter);
+         }
+      } else if (cdata == "GENERATE_KEY") {
+
+         if (fMaster) {
+            R__LOG_ERROR(WebGUILog()) << "Not able to generate new key with master connections";
+         } else {
+            auto newkey = GenerateKey();
+            if(newkey.empty()) {
+               R__LOG_ERROR(WebGUILog()) << "Fail to generate new key by GENERATE_KEY request";
+            } else {
+               SubmitData(conn->fConnId, true, "NEW_KEY="s + newkey, -1);
+               conn->fKey = newkey;
+               conn->fKeyUsed = -1;
+            }
          }
       }
    } else if (fPanelName.length() && (conn->fReady < 10)) {
@@ -862,7 +942,6 @@ bool RWebWindow::CheckDataToSend(std::shared_ptr<WebConn> &conn)
 
    // submit operation, will be processed
    if (res >=0) return true;
-
 
    // failure, clear sending flag
    std::lock_guard<std::mutex> grd(conn->fMutex);
@@ -1160,6 +1239,13 @@ void RWebWindow::SubmitData(unsigned connid, bool txt, std::string &&data, int c
    auto cnt = arr.size();
    auto maxqlen = GetMaxQueueLength();
 
+   bool clear_queue = false;
+
+   if (chid == -1) {
+      chid = 0;
+      clear_queue = true;
+   }
+
    timestamp_t stamp = std::chrono::system_clock::now();
 
    for (auto &conn : arr) {
@@ -1188,6 +1274,11 @@ void RWebWindow::SubmitData(unsigned connid, bool txt, std::string &&data, int c
       conn->fSendStamp = stamp;
 
       std::lock_guard<std::mutex> grd(conn->fMutex);
+
+      if (clear_queue) {
+         while (!conn->fQueue.empty())
+            conn->fQueue.pop();
+      }
 
       if (conn->fQueue.size() < maxqlen) {
          if (--cnt)

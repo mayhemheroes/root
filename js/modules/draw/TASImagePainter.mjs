@@ -1,16 +1,8 @@
-import { create, isNodeJs } from '../core.mjs';
+import { create, isNodeJs, isStr, btoa_func, clTPave, clTGaxis, clTAxis, clTPaletteAxis } from '../core.mjs';
 import { toHex } from '../base/colors.mjs';
 import { ObjectPainter } from '../base/ObjectPainter.mjs';
 import { TPavePainter } from '../hist/TPavePainter.mjs';
 import { ensureTCanvas } from '../gpad/TCanvasPainter.mjs';
-
-
-let node_canvas, btoa_func = globalThis?.btoa;
-
-///_begin_exclude_in_qt5web_
-if(isNodeJs() && process?.env?.APP_ENV !== 'browser') { node_canvas = await import('canvas').then(h => h.default); btoa_func = await import("btoa").then(h => h.default); } /// cutNodeJs
-///_end_exclude_in_qt5web_
-
 
 /**
  * @summary Painter for TASImage object.
@@ -24,14 +16,14 @@ class TASImagePainter extends ObjectPainter {
    decodeOptions(opt) {
       this.options = { Zscale: false };
 
-      if (opt && (opt.indexOf("z") >= 0)) this.options.Zscale = true;
+      if (opt && (opt.indexOf('z') >= 0)) this.options.Zscale = true;
    }
 
    /** @summary Create RGBA buffers */
    createRGBA(nlevels) {
       let obj = this.getObject();
 
-      if (!obj || !obj.fPalette) return null;
+      if (!obj?.fPalette) return null;
 
       let rgba = new Array((nlevels+1) * 4), indx = 1, pal = obj.fPalette; // precaclucated colors
 
@@ -51,117 +43,62 @@ class TASImagePainter extends ObjectPainter {
       return rgba;
    }
 
-   /** @summary Draw image */
-   drawImage() {
-      let obj = this.getObject(),
-          is_buf = false,
-          fp = this.getFramePainter(),
-          rect = fp ? fp.getFrameRect() : this.getPadPainter().getPadRect();
+   /** @summary Create url using image buffer
+     * @private */
+   async makeUrlFromImageBuf(obj, fp) {
 
-      this.wheel_zoomy = true;
+      let nlevels = 1000;
+      this.rgba = this.createRGBA(nlevels); // precaclucated colors
 
-      if (obj._blob) {
-         // try to process blob data due to custom streamer
-         if ((obj._blob.length == 15) && !obj._blob[0]) {
-            obj.fImageQuality = obj._blob[1];
-            obj.fImageCompression = obj._blob[2];
-            obj.fConstRatio = obj._blob[3];
-            obj.fPalette = {
-                _typename: "TImagePalette",
-                fUniqueID: obj._blob[4],
-                fBits: obj._blob[5],
-                fNumPoints: obj._blob[6],
-                fPoints: obj._blob[7],
-                fColorRed: obj._blob[8],
-                fColorGreen: obj._blob[9],
-                fColorBlue: obj._blob[10],
-                fColorAlpha: obj._blob[11]
-            };
-
-            obj.fWidth = obj._blob[12];
-            obj.fHeight = obj._blob[13];
-            obj.fImgBuf = obj._blob[14];
-
-            if ((obj.fWidth * obj.fHeight != obj.fImgBuf.length) ||
-                  (obj.fPalette.fNumPoints != obj.fPalette.fPoints.length)) {
-               console.error('TASImage _blob decoding error', obj.fWidth * obj.fHeight, '!=', obj.fImgBuf.length, obj.fPalette.fNumPoints, "!=", obj.fPalette.fPoints.length);
-               delete obj.fImgBuf;
-               delete obj.fPalette;
-            }
-
-         } else if ((obj._blob.length == 3) && obj._blob[0]) {
-            obj.fPngBuf = obj._blob[2];
-            if (!obj.fPngBuf || (obj.fPngBuf.length != obj._blob[1])) {
-               console.error('TASImage with png buffer _blob error', obj._blob[1], '!=', (obj.fPngBuf ? obj.fPngBuf.length : -1));
-               delete obj.fPngBuf;
-            }
-         } else {
-            console.error('TASImage _blob len', obj._blob.length, 'not recognized');
-         }
-
-         delete obj._blob;
+      let min = obj.fImgBuf[0], max = obj.fImgBuf[0];
+      for (let k = 1; k < obj.fImgBuf.length; ++k) {
+         let v = obj.fImgBuf[k];
+         min = Math.min(v, min);
+         max = Math.max(v, max);
       }
 
-      let url, constRatio = true;
+      // does not work properly in Node.js, causes 'Maximum call stack size exceeded' error
+      // min = Math.min.apply(null, obj.fImgBuf),
+      // max = Math.max.apply(null, obj.fImgBuf);
 
-      if (obj.fImgBuf && obj.fPalette) {
-
-         is_buf = true;
-
-         let nlevels = 1000;
-         this.rgba = this.createRGBA(nlevels); // precaclucated colors
-
-         let min = obj.fImgBuf[0], max = obj.fImgBuf[0];
-         for (let k = 1; k < obj.fImgBuf.length; ++k) {
-            let v = obj.fImgBuf[k];
-            min = Math.min(v, min);
-            max = Math.max(v, max);
+      // create countor like in hist painter to allow palette drawing
+      this.fContour = {
+         arr: new Array(200),
+         rgba: this.rgba,
+         getLevels() { return this.arr; },
+         getPaletteColor(pal, zval) {
+            if (!this.arr || !this.rgba) return 'white';
+            let indx = Math.round((zval - this.arr[0]) / (this.arr[this.arr.length-1] - this.arr[0]) * (this.rgba.length-4)/4) * 4;
+            return '#' + toHex(this.rgba[indx],1) + toHex(this.rgba[indx+1],1) + toHex(this.rgba[indx+2],1) + toHex(this.rgba[indx+3],1);
          }
+      };
+      for (let k = 0; k < 200; k++)
+         this.fContour.arr[k] = min + (max-min)/(200-1)*k;
 
-         // does not work properly in Node.js, causes "Maximum call stack size exceeded" error
-         // min = Math.min.apply(null, obj.fImgBuf),
-         // max = Math.max.apply(null, obj.fImgBuf);
+      if (min >= max) max = min + 1;
 
-         // create countor like in hist painter to allow palette drawing
-         this.fContour = {
-            arr: new Array(200),
-            rgba: this.rgba,
-            getLevels: function() { return this.arr; },
-            getPaletteColor: function(pal, zval) {
-               if (!this.arr || !this.rgba) return "white";
-               let indx = Math.round((zval - this.arr[0]) / (this.arr[this.arr.length-1] - this.arr[0]) * (this.rgba.length-4)/4) * 4;
-               return "#" + toHex(this.rgba[indx],1) + toHex(this.rgba[indx+1],1) + toHex(this.rgba[indx+2],1) + toHex(this.rgba[indx+3],1);
-            }
-         };
-         for (let k = 0; k < 200; k++)
-            this.fContour.arr[k] = min + (max-min)/(200-1)*k;
+      let xmin = 0, xmax = obj.fWidth, ymin = 0, ymax = obj.fHeight; // dimension in pixels
 
-         if (min >= max) max = min + 1;
+      if (fp && (fp.zoom_xmin != fp.zoom_xmax)) {
+         xmin = Math.round(fp.zoom_xmin * obj.fWidth);
+         xmax = Math.round(fp.zoom_xmax * obj.fWidth);
+      }
 
-         let xmin = 0, xmax = obj.fWidth, ymin = 0, ymax = obj.fHeight; // dimension in pixels
+      if (fp && (fp.zoom_ymin != fp.zoom_ymax)) {
+         ymin = Math.round(fp.zoom_ymin * obj.fHeight);
+         ymax = Math.round(fp.zoom_ymax * obj.fHeight);
+      }
 
-         if (fp && (fp.zoom_xmin != fp.zoom_xmax)) {
-            xmin = Math.round(fp.zoom_xmin * obj.fWidth);
-            xmax = Math.round(fp.zoom_xmax * obj.fWidth);
-         }
+      let pr = isNodeJs() ?
+                 import('canvas').then(h => h.default.createCanvas(xmax - xmin, ymax - ymin)) :
+                 new Promise(resolveFunc => {
+                    let c = document.createElement('canvas');
+                    c.width = xmax - xmin;
+                    c.height = ymax - ymin;
+                    resolveFunc(c);
+                 });
 
-         if (fp && (fp.zoom_ymin != fp.zoom_ymax)) {
-            ymin = Math.round(fp.zoom_ymin * obj.fHeight);
-            ymax = Math.round(fp.zoom_ymax * obj.fHeight);
-         }
-
-         let canvas;
-
-         if (isNodeJs()) {
-            canvas = node_canvas.createCanvas(xmax - xmin, ymax - ymin);
-         } else {
-            canvas = document.createElement('canvas');
-            canvas.width = xmax - xmin;
-            canvas.height = ymax - ymin;
-         }
-
-         if (!canvas)
-            return null;
+      return pr.then(canvas => {
 
          let context = canvas.getContext('2d'),
              imageData = context.getImageData(0, 0, canvas.width, canvas.height),
@@ -182,38 +119,101 @@ class TASImagePainter extends ObjectPainter {
 
          context.putImageData(imageData, 0, 0);
 
-         url = canvas.toDataURL(); // create data url to insert into image
+         return { url: canvas.toDataURL(), constRatio: obj.fConstRatio, is_buf: true };
+      });
+   }
 
-         constRatio = obj.fConstRatio;
+   /** @summary Produce data url from png data */
+   async makeUrlFromPngBuf(obj) {
+      let buf = obj.fPngBuf, pngbuf = '';
 
-      } else if (obj.fPngBuf) {
-         let pngbuf = "";
+      if (isStr(buf))
+         pngbuf = buf;
+      else
+         for (let k = 0; k < buf.length; ++k)
+            pngbuf += String.fromCharCode(buf[k] < 0 ? 256 + buf[k] : buf[k]);
 
-         if (typeof obj.fPngBuf == "string") {
-            pngbuf = obj.fPngBuf;
+      return { url: 'data:image/png;base64,' + btoa_func(pngbuf), constRatio: true };
+   }
+
+   /** @summary Draw image */
+   async drawImage() {
+      let obj = this.getObject(),
+          fp = this.getFramePainter(),
+          rect = fp ? fp.getFrameRect() : this.getPadPainter().getPadRect();
+
+      this.wheel_zoomy = true;
+
+      if (obj._blob) {
+         // try to process blob data due to custom streamer
+         if ((obj._blob.length == 15) && !obj._blob[0]) {
+            obj.fImageQuality = obj._blob[1];
+            obj.fImageCompression = obj._blob[2];
+            obj.fConstRatio = obj._blob[3];
+            obj.fPalette = {
+                _typename: 'TImagePalette',
+                fUniqueID: obj._blob[4],
+                fBits: obj._blob[5],
+                fNumPoints: obj._blob[6],
+                fPoints: obj._blob[7],
+                fColorRed: obj._blob[8],
+                fColorGreen: obj._blob[9],
+                fColorBlue: obj._blob[10],
+                fColorAlpha: obj._blob[11]
+            };
+
+            obj.fWidth = obj._blob[12];
+            obj.fHeight = obj._blob[13];
+            obj.fImgBuf = obj._blob[14];
+
+            if ((obj.fWidth * obj.fHeight != obj.fImgBuf.length) ||
+                  (obj.fPalette.fNumPoints != obj.fPalette.fPoints.length)) {
+               console.error(`TASImage _blob decoding error ${obj.fWidth * obj.fHeight} != ${obj.fImgBuf.length} ${obj.fPalette.fNumPoints} != ${obj.fPalette.fPoints.length}`);
+               delete obj.fImgBuf;
+               delete obj.fPalette;
+            }
+
+         } else if ((obj._blob.length == 3) && obj._blob[0]) {
+            obj.fPngBuf = obj._blob[2];
+            if (obj.fPngBuf?.length != obj._blob[1]) {
+               console.error(`TASImage with png buffer _blob error ${obj._blob[1]} != ${obj.fPngBuf?.length}`);
+               delete obj.fPngBuf;
+            }
          } else {
-            for (let k = 0; k < obj.fPngBuf.length; ++k)
-               pngbuf += String.fromCharCode(obj.fPngBuf[k] < 0 ? 256 + obj.fPngBuf[k] : obj.fPngBuf[k]);
+            console.error(`TASImage _blob len ${obj._blob.length} not recognized`);
          }
 
-         url = "data:image/png;base64," + btoa_func(pngbuf);
+         delete obj._blob;
       }
 
-      if (url)
-         this.createG(fp ? true : false)
-             .append("image")
-             .attr("href", url)
-             .attr("width", rect.width)
-             .attr("height", rect.height)
-             .attr("preserveAspectRatio", constRatio ? null : "none");
+      let promise;
 
-      if (!url || !this.isMainPainter() || !is_buf || !fp)
-         return this;
+      if (obj.fImgBuf && obj.fPalette) {
+         promise = this.makeUrlFromImageBuf(obj, fp);
+      } else if (obj.fPngBuf) {
+         promise = this.makeUrlFromPngBuf(obj);
+      } else {
+         promise = Promise.resolve({});
+      }
 
-      return this.drawColorPalette(this.options.Zscale, true).then(() => {
-         fp.setAxesRanges(create("TAxis"), 0, 1, create("TAxis"), 0, 1, null, 0, 0);
-         fp.createXY({ ndim: 2, check_pad_range: false });
-         return fp.addInteractivity();
+      return promise.then(res => {
+
+         if (res.url)
+            this.createG(fp ? true : false)
+                .append('image')
+                .attr('href', res.url)
+                .attr('width', rect.width)
+                .attr('height', rect.height)
+                .attr('preserveAspectRatio', res.constRatio ? null : 'none');
+
+         if (!res.url || !this.isMainPainter() || !res.is_buf || !fp)
+            return this;
+
+         return this.drawColorPalette(this.options.Zscale, true).then(() => {
+            fp.setAxesRanges(create(clTAxis), 0, 1, create(clTAxis), 0, 1, null, 0, 0);
+            fp.createXY({ ndim: 2, check_pad_range: false });
+            return fp.addInteractivity();
+         })
       });
    }
 
@@ -221,30 +221,30 @@ class TASImagePainter extends ObjectPainter {
    canZoomInside(axis,min,max) {
       let obj = this.getObject();
 
-      if (!obj || !obj.fImgBuf)
+      if (!obj?.fImgBuf)
          return false;
 
-      if ((axis == "x") && ((max - min) * obj.fWidth > 3)) return true;
+      if ((axis == 'x') && ((max - min) * obj.fWidth > 3)) return true;
 
-      if ((axis == "y") && ((max - min) * obj.fHeight > 3)) return true;
+      if ((axis == 'y') && ((max - min) * obj.fHeight > 3)) return true;
 
       return false;
    }
 
    /** @summary Draw color palette
      * @private */
-   drawColorPalette(enabled, can_move) {
+   async drawColorPalette(enabled, can_move) {
 
       if (!this.isMainPainter())
-         return Promise.resolve(null);
+         return null;
 
       if (!this.draw_palette) {
-         let pal = create('TPave');
+         let pal = create(clTPave);
 
-         Object.assign(pal, { _typename: "TPaletteAxis", fName: "TPave", fH: null, fAxis: create('TGaxis'),
-                               fX1NDC: 0.91, fX2NDC: 0.95, fY1NDC: 0.1, fY2NDC: 0.9, fInit: 1 } );
+         Object.assign(pal, { _typename: clTPaletteAxis, fName: clTPave, fH: null, fAxis: create(clTGaxis),
+                               fX1NDC: 0.91, fX2NDC: 0.95, fY1NDC: 0.1, fY2NDC: 0.9, fInit: 1 });
 
-         pal.fAxis.fChopt = "+";
+         pal.fAxis.fChopt = '+';
 
          this.draw_palette = pal;
          this.fPalette = true; // to emulate behaviour of hist painter
@@ -257,7 +257,7 @@ class TASImagePainter extends ObjectPainter {
             pal_painter.Enabled = false;
             pal_painter.removeG(); // completely remove drawing without need to redraw complete pad
          }
-         return Promise.resolve(null);
+         return null;
       }
 
       let frame_painter = this.getFramePainter();
@@ -273,7 +273,7 @@ class TASImagePainter extends ObjectPainter {
 
       if (pal_painter) {
          pal_painter.Enabled = true;
-         return pal_painter.drawPave("");
+         return pal_painter.drawPave('');
       }
 
 
@@ -306,11 +306,11 @@ class TASImagePainter extends ObjectPainter {
 
    /** @summary Redraw image */
    redraw(reason) {
-      let img = this.draw_g ? this.draw_g.select("image") : null,
+      let img = this.draw_g ? this.draw_g.select('image') : null,
           fp = this.getFramePainter();
 
-      if (img && !img.empty() && (reason !== "zoom") && fp) {
-         img.attr("width", fp.getFrameWidth()).attr("height", fp.getFrameHeight());
+      if (img && !img.empty() && (reason !== 'zoom') && fp) {
+         img.attr('width', fp.getFrameWidth()).attr('height', fp.getFrameHeight());
       } else {
          return this.drawImage();
       }
@@ -321,7 +321,7 @@ class TASImagePainter extends ObjectPainter {
       if (!this.isMainPainter()) return false;
 
       switch(funcname) {
-         case "ToggleColorZ": this.toggleColz(); break;
+         case 'ToggleColorZ': this.toggleColz(); break;
          default: return false;
       }
 
@@ -331,14 +331,14 @@ class TASImagePainter extends ObjectPainter {
    /** @summary Fill pad toolbar for TASImage */
    fillToolbar() {
       let pp = this.getPadPainter(), obj = this.getObject();
-      if (pp && obj && obj.fPalette) {
-         pp.addPadButton("th2colorz", "Toggle color palette", "ToggleColorZ");
+      if (pp && obj?.fPalette) {
+         pp.addPadButton('th2colorz', 'Toggle color palette', 'ToggleColorZ');
          pp.showPadButtons();
       }
    }
 
    /** @summary Draw TASImage object */
-   static draw(dom, obj, opt) {
+   static async draw(dom, obj, opt) {
       let painter = new TASImagePainter(dom, obj, opt);
       painter.decodeOptions(opt);
       return ensureTCanvas(painter, false)

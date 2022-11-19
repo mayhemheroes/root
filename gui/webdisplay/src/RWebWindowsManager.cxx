@@ -21,10 +21,10 @@
 #include "THttpServer.h"
 
 #include "TSystem.h"
-#include "TRandom.h"
 #include "TString.h"
 #include "TApplication.h"
 #include "TTimer.h"
+#include "TRandom.h"
 #include "TROOT.h"
 #include "TEnv.h"
 #include "TExec.h"
@@ -494,6 +494,8 @@ std::string RWebWindowsManager::GetUrl(const RWebWindow &win, bool remote)
 ///
 /// Following parameters can be configured in rootrc file:
 ///
+///      WebGui.Display: kind of display like chrome or firefox or browser, can be overwritten by --web=value command line argument
+///      WebGui.OnetimeKey: if configured requires unique key every time window is connected (default no)
 ///      WebGui.Chrome: full path to Google Chrome executable
 ///      WebGui.ChromeBatch: command to start chrome in batch, used for image production, like "$prog --headless --disable-gpu $geometry $url"
 ///      WebGui.ChromeHeadless: command to start chrome in headless mode, like "fork: --headless --disable-gpu $geometry $url"
@@ -544,13 +546,8 @@ unsigned RWebWindowsManager::ShowWindow(RWebWindow &win, const RWebDisplayArgs &
       return 0;
    }
 
-   std::string key;
-   int ntry = 100000;
-
-   do {
-      key = std::to_string(gRandom->Integer(0x100000));
-   } while ((--ntry > 0) && win.HasKey(key));
-   if (ntry == 0) {
+   std::string key = win.GenerateKey();
+   if (key.empty()) {
       R__LOG_ERROR(WebGUILog()) << "Fail to create unique key for the window";
       return 0;
    }
@@ -566,7 +563,7 @@ unsigned RWebWindowsManager::ShowWindow(RWebWindow &win, const RWebDisplayArgs &
    if (args.GetHeight() <= 0) args.SetHeight(win.GetHeight());
 
    bool normal_http = !args.IsLocalDisplay();
-   if (!normal_http && (gEnv->GetValue("WebGui.ForceHttp",0) == 1))
+   if (!normal_http && (gEnv->GetValue("WebGui.ForceHttp", 0) == 1))
       normal_http = true;
 
    std::string url = GetUrl(win, normal_http);
@@ -586,10 +583,28 @@ unsigned RWebWindowsManager::ShowWindow(RWebWindow &win, const RWebDisplayArgs &
    if (!token.empty())
       args.AppendUrlOpt(std::string("token=") + token);
 
-   if (!args.IsHeadless() && (gROOT->GetWebDisplay() == "server")) {
+   if (!args.IsHeadless() && (args.GetBrowserKind() == RWebDisplayArgs::kServer) && (RWebWindowWSHandler::GetBoolEnv("WebGui.OnetimeKey") != 1)) {
       std::cout << "New web window: " << args.GetUrl() << std::endl;
       return 0;
    }
+
+#if not(defined(R__MACOSX)) and not(defined(R__WIN32))
+   if (args.IsInteractiveBrowser()) {
+      const char *varname = "WebGui.CheckRemoteDisplay";
+      if (RWebWindowWSHandler::GetBoolEnv(varname, 1) == 1) {
+         const char *displ = gSystem->Getenv("DISPLAY");
+         if (displ && *displ && (*displ != ':')) {
+            gEnv->SetValue(varname, "no");
+            std::cout << "\n"
+               "ROOT web-based widget started in the session where DISPLAY set to " << displ << "\n" <<
+               "Means web browser will be displayed on remote X11 server which is usually very inefficient\n"
+               "One can start ROOT session in server mode like \"root -b --web=server:8877\" and forward http port to display node\n"
+               "Find more info on https://root.cern/for_developers/root7/#rbrowser\n"
+               "This message can be disabled by setting \"" << varname << ": no\" in .rootrc file\n";
+         }
+      }
+   }
+#endif
 
    if (!normal_http)
       args.SetHttpServer(GetServer());

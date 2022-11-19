@@ -34,8 +34,8 @@ public:
 
    RooNLLVarNew(){};
    RooNLLVarNew(const char *name, const char *title, RooAbsPdf &pdf, RooArgSet const &observables, bool isExtended,
-                std::string const &rangeName, bool doOffset);
-   RooNLLVarNew(const RooNLLVarNew &other, const char *name = 0);
+                bool doOffset, int simCount = 1, bool binnedL = false);
+   RooNLLVarNew(const RooNLLVarNew &other, const char *name = nullptr);
    TObject *clone(const char *newname) const override { return new RooNLLVarNew(*this, newname); }
 
    void getParametersHook(const RooArgSet *nset, RooArgSet *list, bool stripDisconnected) const override;
@@ -47,15 +47,18 @@ public:
    void computeBatch(cudaStream_t *, double *output, size_t nOut, RooFit::Detail::DataMap const &) const override;
    inline bool isReducerNode() const override { return true; }
 
-   RooArgSet prefixObservableAndWeightNames(std::string const &prefix);
+   RooArgSet prefixArgNames(std::string const &prefix);
 
    void applyWeightSquared(bool flag) override;
 
    std::unique_ptr<RooArgSet> fillNormSetForServer(RooArgSet const &normSet, RooAbsArg const &server) const override;
 
+   void enableOffsetting(bool) override;
+
 private:
-   double evaluate() const override;
+   double evaluate() const override { return _value; }
    void resetWeightVarNames();
+   double finalizeResult(ROOT::Math::KahanSum<double> &&result, double weightSum) const;
 
    RooTemplateProxy<RooAbsPdf> _pdf;
    RooArgSet _observables;
@@ -65,10 +68,10 @@ private:
    bool _weightSquared = false;
    bool _binnedL = false;
    bool _doOffset = false;
+   int _simCount = 0;
    std::string _prefix;
    RooTemplateProxy<RooAbsReal> _weightVar;
    RooTemplateProxy<RooAbsReal> _weightSquaredVar;
-   std::unique_ptr<RooTemplateProxy<RooAbsReal>> _fractionInRange;
    mutable std::vector<double> _binw;                  ///<!
    mutable std::vector<double> _logProbasBuffer;       ///<!
    mutable ROOT::Math::KahanSum<double> _offset = 0.0; ///<! Offset as KahanSum to avoid loss of precision

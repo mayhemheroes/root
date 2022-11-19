@@ -48,7 +48,7 @@ namespace CNN {
     a CNN. It inherits all of the properties of the convolutional layer
     TConvLayer, but it overrides the propagation methods. In a sense, max pooling
     can be seen as non-linear convolution: a filter slides over the input and produces
-    one element as a function of the the elements within the receptive field.
+    one element as a function of the elements within the receptive field.
     In addition to that, it contains a matrix of winning units.
 
     The height and width of the weights and biases is set to 0, since this
@@ -282,13 +282,13 @@ auto TMaxPoolLayer<Architecture_t>::Print() const -> void
 template <typename Architecture_t>
 void TMaxPoolLayer<Architecture_t>::AddWeightsXMLTo(void *parent)
 {
-   auto layerxml = gTools().xmlengine().NewChild(parent, 0, "MaxPoolLayer");
+   auto layerxml = gTools().xmlengine().NewChild(parent, nullptr, "MaxPoolLayer");
 
    // write  maxpool layer info
-   gTools().xmlengine().NewAttr(layerxml, 0, "FilterHeight", gTools().StringFromInt(this->GetFilterHeight()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "FilterWidth", gTools().StringFromInt(this->GetFilterWidth()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "StrideRows", gTools().StringFromInt(this->GetStrideRows()));
-   gTools().xmlengine().NewAttr(layerxml, 0, "StrideCols", gTools().StringFromInt(this->GetStrideCols()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "FilterHeight", gTools().StringFromInt(this->GetFilterHeight()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "FilterWidth", gTools().StringFromInt(this->GetFilterWidth()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "StrideRows", gTools().StringFromInt(this->GetStrideRows()));
+   gTools().xmlengine().NewAttr(layerxml, nullptr, "StrideCols", gTools().StringFromInt(this->GetStrideCols()));
 
 }
 

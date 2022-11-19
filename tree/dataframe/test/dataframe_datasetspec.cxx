@@ -1,8 +1,15 @@
 #include <gtest/gtest.h>
+
+// Backward compatibility for gtest version < 1.10.0
+#ifndef INSTANTIATE_TEST_SUITE_P
+#define INSTANTIATE_TEST_SUITE_P INSTANTIATE_TEST_CASE_P
+#endif
+
 #include <ROOT/RDataFrame.hxx>
 #include <ROOT/RVec.hxx>
 #include <ROOT/RDFHelpers.hxx>
 #include <ROOT/TestSupport.hxx>
+#include <ROOT/RDF/RDatasetSpec.hxx>
 #include <TSystem.h>
 
 #include <thread> // std::thread::hardware_concurrency
@@ -36,6 +43,7 @@ protected:
 
    const unsigned int NSLOTS;
 
+public:
    static void SetUpTestCase()
    {
       auto dfWriter0 = RDataFrame(5).Define("z", [](ULong64_t e) { return e + 100; }, {"rdfentry_"});
@@ -380,9 +388,9 @@ TEST_P(RDatasetSpecTest, SaveGraph)
    // as expected the chain has no name
    static const std::string expectedGraph(
       "digraph {\n"
-      "\t1 [label=<Sum>, style=\"filled\", fillcolor=\"#e47c7e\", shape=\"box\"];\n"
-      "\t0 [label=<>, style=\"filled\", fillcolor=\"#f4b400\", shape=\"ellipse\"];\n"
-      "\t2 [label=<Sum>, style=\"filled\", fillcolor=\"#e47c7e\", shape=\"box\"];\n"
+      "\t1 [label=\"Sum\", style=\"filled\", fillcolor=\"#e47c7e\", shape=\"box\"];\n"
+      "\t0 [label=\"\", style=\"filled\", fillcolor=\"#f4b400\", shape=\"ellipse\"];\n"
+      "\t2 [label=\"Sum\", style=\"filled\", fillcolor=\"#e47c7e\", shape=\"box\"];\n"
       "\t0 -> 1;\n"
       "\t0 -> 2;\n"
       "}");

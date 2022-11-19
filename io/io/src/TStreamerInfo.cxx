@@ -1343,7 +1343,7 @@ namespace {
       Int_t oldv = oldClass->GetStreamerInfo()->GetClassVersion();
 
       if (newClass->GetStreamerInfos() && oldv < newClass->GetStreamerInfos()->GetSize() && newClass->GetStreamerInfos()->At(oldv) && strcmp(newClass->GetStreamerInfos()->At(oldv)->GetName(), oldClass->GetName()) != 0) {
-         // The new class has already a TStreamerInfo for the the same version as
+         // The new class has already a TStreamerInfo for the same version as
          // the old class and this was not the result of an import.  So we do not
          // have a match
          return kFALSE;
@@ -3034,14 +3034,12 @@ Bool_t TStreamerInfo::CompareContent(TClass *cl, TVirtualStreamerInfo *info, Boo
 
    TMemberInfo local(GetClass());
    TMemberInfo other(cl ? cl : info->GetClass());
-   UInt_t idx = 0;
    while(!done) {
       local.Clear();
       other.Clear();
       el = (TStreamerElement*)next();
       while (el && (el->IsBase() || el->IsA() == TStreamerArtificial::Class())) {
          el = (TStreamerElement*)next();
-         ++idx;
       }
       if (el) {
          local.SetName( el->GetName() );
@@ -3119,7 +3117,6 @@ Bool_t TStreamerInfo::CompareContent(TClass *cl, TVirtualStreamerInfo *info, Boo
          result = result && kFALSE;
          if (!complete) return result;
       }
-      ++idx;
    }
    return result;
 }
@@ -3184,6 +3181,24 @@ void TStreamerInfo::ForceWriteInfo(TFile* file, Bool_t force)
    ) {
       return;
    }
+
+   auto recurseIntoContent = [file, force](TClass *contentClass)
+   {
+      TVirtualStreamerInfo* si = 0;
+      if (contentClass->Property() & kIsAbstract) {
+         // If the class of the element is abstract, register the
+         // TStreamerInfo only if it has already been built.
+         // Otherwise call cl->GetStreamerInfo() would generate an
+         // incorrect StreamerInfo.
+         si = contentClass->GetCurrentStreamerInfo();
+      } else {
+         si = contentClass->GetStreamerInfo();
+      }
+      if (si) {
+         si->ForceWriteInfo(file, force);
+      }
+   };
+
    // We do not want to write streamer info to the file
    // for std::string.
    static TClassRef string_classref("string");
@@ -3200,6 +3215,9 @@ void TStreamerInfo::ForceWriteInfo(TFile* file, Bool_t force)
          return;
       }
    } else if (fClass->GetCollectionProxy()) { // We are an STL collection.
+      TClass *valueClass = fClass->GetCollectionProxy()->GetValueClass();
+      if (valueClass)
+         recurseIntoContent(valueClass);
       return;
    }
    // Mark ourselves for output, and block
@@ -3214,22 +3232,10 @@ void TStreamerInfo::ForceWriteInfo(TFile* file, Bool_t force)
    for (; element; element = (TStreamerElement*) next()) {
       if (element->IsTransient()) continue;
       TClass* cl = element->GetClassPointer();
-      if (cl) {
-         TVirtualStreamerInfo* si = 0;
-         if (cl->Property() & kIsAbstract) {
-            // If the class of the element is abstract, register the
-            // TStreamerInfo only if it has already been built.
-            // Otherwise call cl->GetStreamerInfo() would generate an
-            // incorrect StreamerInfo.
-            si = cl->GetCurrentStreamerInfo();
-         } else {
-            si = cl->GetStreamerInfo();
-         }
-         if (si) {
-            si->ForceWriteInfo(file, force);
-         }
-      }
+      if (cl)
+         recurseIntoContent(cl);
    }
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////

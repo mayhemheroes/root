@@ -65,7 +65,7 @@ class R__CLING_PTRCHECK(off) RFilter final : public RFilterBase {
 
    FilterF fFilter;
    /// Column readers per slot and per input column
-   std::vector<std::array<std::shared_ptr<RColumnReaderBase>, ColumnTypes_t::list_size>> fValues;
+   std::vector<std::array<RColumnReaderBase *, ColumnTypes_t::list_size>> fValues;
    const std::shared_ptr<PrevNode_t> fPrevNodePtr;
    PrevNode_t &fPrevNode;
 
@@ -119,7 +119,7 @@ public:
    void InitSlot(TTreeReader *r, unsigned int slot) final
    {
       RDFInternal::RColumnReadersInfo info{fColumnNames, fColRegister, fIsDefine.data(), *fLoopManager};
-      fValues[slot] = RDFInternal::MakeColumnReaders(slot, r, ColumnTypes_t{}, info, fVariation);
+      fValues[slot] = RDFInternal::GetColumnReaders(slot, r, ColumnTypes_t{}, info, fVariation);
       fLastCheckedEntry[slot * RDFInternal::CacheLineStep<Long64_t>()] = -1;
    }
 
@@ -153,7 +153,7 @@ public:
       fPrevNode.IncrChildrenCount();
    }
 
-   void AddFilterName(std::vector<std::string> &filters)
+   void AddFilterName(std::vector<std::string> &filters) final
    {
       fPrevNode.AddFilterName(filters);
       auto name = (HasName() ? fName : "Unnamed Filter");
@@ -161,14 +161,10 @@ public:
    }
 
    /// Clean-up operations to be performed at the end of a task.
-   void FinalizeSlot(unsigned int slot) final
-   {
-      for (auto &v : fValues[slot])
-         v.reset();
-   }
+   void FinalizeSlot(unsigned int slot) final { fValues[slot].fill(nullptr); }
 
    std::shared_ptr<RDFGraphDrawing::GraphNode>
-   GetGraph(std::unordered_map<void *, std::shared_ptr<RDFGraphDrawing::GraphNode>> &visitedMap)
+   GetGraph(std::unordered_map<void *, std::shared_ptr<RDFGraphDrawing::GraphNode>> &visitedMap) final
    {
       // Recursively call for the previous node.
       auto prevNode = fPrevNode.GetGraph(visitedMap);

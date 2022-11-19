@@ -2,6 +2,7 @@
 #define ROOT7_RNTuple_Test_CustomStruct
 
 #include <string>
+#include <variant>
 #include <vector>
 
 /**
@@ -88,6 +89,45 @@ struct StructWithEnums : BaseOfStructWithEnums {
    enum class DeclEC { E1, E2, E42 = 137 };
    int a = E42;
    int b = static_cast<int>(DeclEC::E42);
+};
+
+/// A class that behaves as a collection accessed through the `TVirtualCollectionProxy` interface
+template <typename T>
+struct StructUsingCollectionProxy {
+   using ValueType = T;
+   std::vector<T> v; //! do not accidentally store via RClassField
+};
+
+/// Classes to exercise field traits
+struct TrivialTraitsBase {
+   int a;
+};
+
+struct TrivialTraits : TrivialTraitsBase {
+   float b;
+};
+
+struct TransientTraits : TrivialTraitsBase {
+   float b; //! transient member
+};
+
+struct VariantTraitsBase {
+   std::variant<int, float> a;
+};
+
+struct VariantTraits : VariantTraitsBase {
+};
+
+struct StringTraits : VariantTraitsBase {
+   std::string s;
+};
+
+struct ConstructorTraits : TrivialTraitsBase {
+   ConstructorTraits() {}
+};
+
+struct DestructorTraits : TrivialTraitsBase {
+   ~DestructorTraits() {}
 };
 
 #endif

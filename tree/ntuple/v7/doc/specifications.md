@@ -167,7 +167,7 @@ A reader must support at least this version in order to extract meaningful data 
 If the envelope version is larger than the minimum version, there might be additional data in the envelope
 that older readers can safely ignore.
 
-_CRC32_: Checksum of the envelope and the payload
+_CRC32_: Checksum of the envelope and the payload bytes together (CRC32 has the property that `crc32("123456") == crc32("456", crc32("123")`)
 
 Note that the size of envelopes is given by the RNTuple anchor (header, footer)
 or by a locator that references the envelope.
@@ -470,10 +470,11 @@ without inspecting the meta-data of all the previous clusters.
 
 The hierarchical structure of the frames in the page list envelope is as follows:
 
-    - Top-most cluster list frame
+    # this is `List frame of cluster group record frames` mentioned above
+    - Top-most cluster list frame (one item for each cluster in this RNTuple)
     |
-    |---- Cluster 1 column list frame (outer list frame)
-    |     |---- Column 1 page list frame (inner list frame)
+    |---- Cluster 1 column list frame (outer list frame, one item for each column in this RNTuple)
+    |     |---- Column 1 page list frame (inner list frame, one item for each page in this column)
     |     |     |---- Page 1 description (inner item)
     |     |     |---- Page 2 description (inner item)
     |     |     | ...
@@ -602,6 +603,11 @@ The child fileds are named `_0`, `_1`, ...
 
 ### User-defined classes
 
+User-defined classes might behave either as a record or as a collection of elements of a given type.
+The behavior depends on whether the class has an associated collection proxy.
+
+#### Regular class / struct
+
 User defined C++ classes are supported with the following limitations
   - The class must have a dictionary
   - All persistent members and base classes must be themselves types with RNTuple I/O support
@@ -614,6 +620,16 @@ User classes are stored as a record mother field with no attached columns.
 Direct base classes and persistent members are stored as subfields with their respective types.
 The field name of member subfields is identical to the C++ field name.
 The field name of base class subfields are numbered and preceeded by a colon (`:`), i.e. `:_0`, `:_1`, ...
+
+#### Classes with an associated collection proxy
+
+User classes that specify a collection proxy behave as collections of a given value type.
+Associative collections are not currently supported.
+
+The on-disk representation is similar to a `std::vector<T>` where `T` is the value type; specifically, it is stored as two fields:
+  - Collection mother field of type SplitIndex32 or SplitIndex64
+  - Child field of type `T`, which must by a type with RNTuple I/O support.
+    The name of the child field is `_0`.
 
 ## Limits
 

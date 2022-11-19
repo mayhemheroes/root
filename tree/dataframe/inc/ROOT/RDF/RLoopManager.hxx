@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // forward declarations
@@ -133,14 +134,15 @@ class RLoopManager : public RNodeBase {
    std::vector<RDFInternal::RCallback> fCallbacks;         ///< Registered callbacks
    /// Registered callbacks to invoke just once before running the loop
    std::vector<RDFInternal::ROneTimeCallback> fCallbacksOnce;
-   /// Registered callbacks to call at the beginning of each "data block"
-   std::vector<ROOT::RDF::SampleCallback_t> fSampleCallbacks;
+   /// Registered callbacks to call at the beginning of each "data block".
+   /// The key is the pointer of the corresponding node in the computation graph (a RDefinePerSample or a RAction).
+   std::unordered_map<void *, ROOT::RDF::SampleCallback_t> fSampleCallbacks;
    RDFInternal::RNewSampleNotifier fNewSampleNotifier;
    std::vector<ROOT::RDF::RSampleInfo> fSampleInfos;
    unsigned int fNRuns{0}; ///< Number of event loops run
 
    /// Readers for TTree/RDataSource columns (one per slot), shared by all nodes in the computation graph.
-   std::vector<std::unordered_map<std::string, std::shared_ptr<RColumnReaderBase>>> fDatasetColumnReaders;
+   std::vector<std::unordered_map<std::string, std::unique_ptr<RColumnReaderBase>>> fDatasetColumnReaders;
 
    /// Cache of the tree/chain branch names. Never access directy, always use GetBranchNames().
    ColumnNames_t fValidBranchNames;
@@ -174,7 +176,7 @@ public:
    void JitDeclarations();
    void Jit();
    RLoopManager *GetLoopManagerUnchecked() final { return this; }
-   void Run();
+   void Run(bool jit = true);
    const ColumnNames_t &GetDefaultColumnNames() const;
    TTree *GetTree() const;
    ::TDirectory *GetDirectory() const;
@@ -204,14 +206,12 @@ public:
    bool HasDataSourceColumnReaders(const std::string &col, const std::type_info &ti) const;
    void AddDataSourceColumnReaders(const std::string &col, std::vector<std::unique_ptr<RColumnReaderBase>> &&readers,
                                    const std::type_info &ti);
-   std::shared_ptr<RColumnReaderBase> AddTreeColumnReader(unsigned int slot, const std::string &col,
-                                                          std::unique_ptr<RColumnReaderBase> &&reader,
-                                                          const std::type_info &ti);
-   std::shared_ptr<RColumnReaderBase>
-   GetDatasetColumnReader(unsigned int slot, const std::string &col, const std::type_info &ti) const;
+   RColumnReaderBase *AddTreeColumnReader(unsigned int slot, const std::string &col,
+                                          std::unique_ptr<RColumnReaderBase> &&reader, const std::type_info &ti);
+   RColumnReaderBase *GetDatasetColumnReader(unsigned int slot, const std::string &col, const std::type_info &ti) const;
 
    /// End of recursive chain of calls, does nothing
-   void AddFilterName(std::vector<std::string> &) {}
+   void AddFilterName(std::vector<std::string> &) final {}
    /// For each booked filter, returns either the name or "Unnamed Filter"
    std::vector<std::string> GetFiltersNames();
 
@@ -223,11 +223,11 @@ public:
    std::vector<RDFInternal::RActionBase *> GetAllActions() const;
 
    std::shared_ptr<ROOT::Internal::RDF::GraphDrawing::GraphNode>
-   GetGraph(std::unordered_map<void *, std::shared_ptr<ROOT::Internal::RDF::GraphDrawing::GraphNode>> &visitedMap);
+   GetGraph(std::unordered_map<void *, std::shared_ptr<ROOT::Internal::RDF::GraphDrawing::GraphNode>> &visitedMap) final;
 
    const ColumnNames_t &GetBranchNames();
 
-   void AddSampleCallback(ROOT::RDF::SampleCallback_t &&callback);
+   void AddSampleCallback(void *nodePtr, ROOT::RDF::SampleCallback_t &&callback);
 };
 
 } // ns RDF

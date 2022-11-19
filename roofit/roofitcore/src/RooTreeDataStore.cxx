@@ -177,7 +177,7 @@ RooTreeDataStore::RooTreeDataStore(RooStringView name, RooStringView title, RooA
 }
 
 
-RooAbsDataStore* RooTreeDataStore::reduce(RooStringView name, RooStringView title,
+std::unique_ptr<RooAbsDataStore> RooTreeDataStore::reduce(RooStringView name, RooStringView title,
                         const RooArgSet& vars, const RooFormulaVar* cutVar, const char* cutRange,
                         std::size_t nStart, std::size_t nStop) {
   RooArgSet tmp(vars) ;
@@ -185,7 +185,7 @@ RooAbsDataStore* RooTreeDataStore::reduce(RooStringView name, RooStringView titl
     tmp.add(*_wgtVar) ;
   }
   const char* wgtVarName = _wgtVar ? _wgtVar->GetName() : nullptr;
-  return new RooTreeDataStore(name, title, *this, tmp, cutVar, cutRange, nStart, nStop, wgtVarName);
+  return std::make_unique<RooTreeDataStore>(name, title, *this, tmp, cutVar, cutRange, nStart, nStop, wgtVarName);
 }
 
 
@@ -426,8 +426,15 @@ void RooTreeDataStore::loadValues(const TTree *t, const RooFormulaVar* select, c
         numInvalid++ ;
         allOK=false ;
         if (numInvalid < 5) {
-          coutI(DataHandling) << "RooTreeDataStore::loadValues(" << GetName() << ") Skipping event #" << i << " because " << destArg->GetName()
-              << " cannot accommodate the value " << static_cast<RooAbsReal*>(sourceArg)->getVal() << std::endl;
+          auto& log = coutI(DataHandling);
+          log << "RooTreeDataStore::loadValues(" << GetName() << ") Skipping event #" << i << " because " << destArg->GetName()
+              << " cannot accommodate the value ";
+          if(sourceArg->isCategory()) {
+            log << static_cast<RooAbsCategory*>(sourceArg)->getCurrentIndex();
+          } else {
+            log << static_cast<RooAbsReal*>(sourceArg)->getVal();
+          }
+          log << std::endl;
         } else if (numInvalid == 5) {
           coutI(DataHandling) << "RooTreeDataStore::loadValues(" << GetName() << ") Skipping ..." << std::endl;
         }
@@ -618,7 +625,7 @@ double RooTreeDataStore::weightError(RooAbsData::ErrorType etype) const
 
    } else if (_wgtVar) {
 
-    // We have a a weight variable, use that info
+    // We have a weight variable, use that info
     if (_wgtVar->hasAsymError()) {
       return ( _wgtVar->getAsymErrorHi() - _wgtVar->getAsymErrorLo() ) / 2 ;
     } else {
@@ -680,7 +687,7 @@ void RooTreeDataStore::weightError(double& lo, double& hi, RooAbsData::ErrorType
 
   } else if (_wgtVar) {
 
-    // We have a a weight variable, use that info
+    // We have a weight variable, use that info
     if (_wgtVar->hasAsymError()) {
       hi = _wgtVar->getAsymErrorHi() ;
       lo = _wgtVar->getAsymErrorLo() ;

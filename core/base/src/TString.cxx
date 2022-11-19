@@ -263,6 +263,10 @@ char *TString::Init(Ssiz_t capacity, Ssiz_t nchar)
       Error("*TString::Init", "Negative length!");
       nchar = 0;
    }
+   if (nchar > capacity) {
+      Error("TString::Init", "capacity is smaller than nchar (%d > %d)", nchar, capacity);
+      nchar = capacity;
+   }
    if (capacity > MaxSize()) {
       Error("TString::Init", "capacity too large (%d, max = %d)", capacity, MaxSize());
       capacity = MaxSize();
@@ -1031,7 +1035,7 @@ TString &TString::Replace(Ssiz_t pos, Ssiz_t n1, const char *cs, Ssiz_t n2)
    Ssiz_t capac = Capacity();
    char *p = GetPointer();
 
-   if (capac - len + n1 >= n2) {
+   if (capac >= tot) {
       if (n1 != n2) {
          if (rem) {
             if (n1 > n2) {

@@ -249,7 +249,10 @@ ROOT::Experimental::Detail::RFieldBase::Create(const std::string &fieldName, con
    if (!result) {
       auto cl = TClass::GetClass(normalizedType.c_str());
       if (cl != nullptr) {
-         result = std::make_unique<RClassField>(fieldName, normalizedType);
+         if (cl->GetCollectionProxy())
+            result = std::make_unique<RCollectionClassField>(fieldName, normalizedType);
+         else
+            result = std::make_unique<RClassField>(fieldName, normalizedType);
       }
    }
 
@@ -805,24 +808,38 @@ ROOT::Experimental::RClassField::RClassField(std::string_view fieldName, std::st
    if (fClass->Property() & kIsDefinedInStd) {
       throw RException(R__FAIL(std::string(className) + " is not supported"));
    }
+   if (fClass->GetCollectionProxy()) {
+      throw RException(
+         R__FAIL(std::string(className) + " has an associated collection proxy; use RCollectionClassField instead"));
+   }
+
+   if (!(fClass->ClassProperty() & kClassHasExplicitCtor))
+      fTraits |= kTraitTriviallyConstructible;
+   if (!(fClass->ClassProperty() & kClassHasExplicitDtor))
+      fTraits |= kTraitTriviallyDestructible;
 
    int i = 0;
    for (auto baseClass : ROOT::Detail::TRangeStaticCast<TBaseClass>(*fClass->GetListOfBases())) {
       TClass *c = baseClass->GetClassPointer();
       auto subField = Detail::RFieldBase::Create(std::string(kPrefixInherited) + "_" + std::to_string(i),
                                                  c->GetName()).Unwrap();
+      fTraits &= subField->GetTraits();
       Attach(std::move(subField),
 	     RSubFieldInfo{kBaseClass, static_cast<std::size_t>(baseClass->GetDelta())});
       i++;
    }
    for (auto dataMember : ROOT::Detail::TRangeStaticCast<TDataMember>(*fClass->GetListOfDataMembers())) {
-      // Skip members explicitly marked as transient by user comment
-      if (!dataMember->IsPersistent())
-         continue;
       // Skip, for instance, unscoped enum constants defined in the class
       if (dataMember->Property() & kIsStatic)
          continue;
+      // Skip members explicitly marked as transient by user comment
+      if (!dataMember->IsPersistent()) {
+         // TODO(jblomer): we could do better
+         fTraits &= ~(kTraitTriviallyConstructible | kTraitTriviallyDestructible);
+         continue;
+      }
       auto subField = Detail::RFieldBase::Create(dataMember->GetName(), dataMember->GetFullTypeName()).Unwrap();
+      fTraits &= subField->GetTraits();
       Attach(std::move(subField),
 	     RSubFieldInfo{kDataMember, static_cast<std::size_t>(dataMember->GetOffset())});
    }
@@ -916,15 +933,186 @@ void ROOT::Experimental::RClassField::AcceptVisitor(Detail::RFieldVisitor &visit
 
 //------------------------------------------------------------------------------
 
+ROOT::Experimental::RCollectionClassField::RCollectionClassField(std::string_view fieldName, std::string_view className)
+   : RCollectionClassField(fieldName, className, TClass::GetClass(std::string(className).c_str()))
+{
+}
+
+ROOT::Experimental::RCollectionClassField::RCollectionClassField(std::string_view fieldName, std::string_view className,
+                                                                 TClass *classp)
+   : ROOT::Experimental::Detail::RFieldBase(fieldName, className, ENTupleStructure::kCollection, false /* isSimple */),
+     fNWritten(0)
+{
+   if (classp == nullptr)
+      throw RException(R__FAIL("RField: no I/O support for collection proxy type " + std::string(className)));
+   if (!classp->GetCollectionProxy())
+      throw RException(R__FAIL(std::string(className) + " has no associated collection proxy"));
+
+   fProxy.reset(classp->GetCollectionProxy()->Generate());
+   if (fProxy->HasPointers())
+      throw RException(R__FAIL("collection proxies whose value type is a pointer are not supported"));
+   if (fProxy->GetProperties() & TVirtualCollectionProxy::kIsAssociative)
+      throw RException(R__FAIL("associative collections not supported"));
+
+   std::unique_ptr<ROOT::Experimental::Detail::RFieldBase> itemField;
+   if (auto valueClass = fProxy->GetValueClass()) {
+      // Element type is a class
+      itemField = RFieldBase::Create("_0", valueClass->GetName()).Unwrap();
+   } else {
+      switch (fProxy->GetType()) {
+      case EDataType::kChar_t:   itemField = std::make_unique<RField<char>>("_0"); break;
+      case EDataType::kUChar_t:  itemField = std::make_unique<RField<std::uint8_t>>("_0"); break;
+      case EDataType::kShort_t:  itemField = std::make_unique<RField<std::int16_t>>("_0"); break;
+      case EDataType::kUShort_t: itemField = std::make_unique<RField<std::uint16_t>>("_0"); break;
+      case EDataType::kInt_t:    itemField = std::make_unique<RField<std::int32_t>>("_0"); break;
+      case EDataType::kUInt_t:   itemField = std::make_unique<RField<std::uint32_t>>("_0"); break;
+      case EDataType::kLong_t:
+      case EDataType::kLong64_t:
+         itemField = std::make_unique<RField<std::int64_t>>("_0");
+         break;
+      case EDataType::kULong_t:
+      case EDataType::kULong64_t:
+         itemField = std::make_unique<RField<std::uint64_t>>("_0");
+         break;
+      case EDataType::kFloat_t:  itemField = std::make_unique<RField<float>>("_0"); break;
+      case EDataType::kDouble_t: itemField = std::make_unique<RField<double>>("_0"); break;
+      case EDataType::kBool_t:   itemField = std::make_unique<RField<bool>>("_0"); break;
+      default:
+         throw RException(R__FAIL("unsupported value type"));
+      }
+   }
+   fItemSize = itemField->GetValueSize();
+   Attach(std::move(itemField));
+}
+
+std::unique_ptr<ROOT::Experimental::Detail::RFieldBase>
+ROOT::Experimental::RCollectionClassField::CloneImpl(std::string_view newName) const
+{
+   return std::unique_ptr<RCollectionClassField>(
+      new RCollectionClassField(newName, GetType(), fProxy->GetCollectionClass()));
+}
+
+std::size_t ROOT::Experimental::RCollectionClassField::AppendImpl(const Detail::RFieldValue &value)
+{
+   TVirtualCollectionProxy::TPushPop RAII(fProxy.get(), value.GetRawPtr());
+   std::size_t nbytes = 0;
+   auto count = fProxy->Size();
+   for (unsigned i = 0; i < count; ++i) {
+      auto itemValue = fSubFields[0]->CaptureValue(fProxy->At(i));
+      nbytes += fSubFields[0]->Append(itemValue);
+   }
+   Detail::RColumnElement<ClusterSize_t> elemIndex(&fNWritten);
+   fNWritten += count;
+   fColumns[0]->Append(elemIndex);
+   return nbytes + sizeof(elemIndex);
+}
+
+void ROOT::Experimental::RCollectionClassField::ReadGlobalImpl(NTupleSize_t globalIndex, Detail::RFieldValue *value)
+{
+   TVirtualCollectionProxy::TPushPop RAII(fProxy.get(), value->GetRawPtr());
+
+   ClusterSize_t nItems;
+   RClusterIndex collectionStart;
+   fPrincipalColumn->GetCollectionInfo(globalIndex, &collectionStart, &nItems);
+
+   // `TVirtualCollectionProxy::Clear()` is responsible for destroying the items in the collection
+   fProxy->Clear("force");
+
+   // Avoid heap fragmentation at the cost of temporarily allocating slightly more memory
+   const size_t buffSize = std::max(kReadChunkSize, fItemSize);
+   const std::uint32_t nItemsPerChunk = buffSize / fItemSize;
+   auto buff = std::make_unique<unsigned char[]>(buffSize);
+
+   auto nItemsLeft = static_cast<std::uint32_t>(nItems);
+   while (nItemsLeft > 0) {
+      auto count = std::min(nItemsLeft, nItemsPerChunk);
+      for (std::size_t i = 0; i < count; ++i) {
+         auto itemValue = fSubFields[0]->GenerateValue(buff.get() + (i * fItemSize));
+         fSubFields[0]->Read(collectionStart + i, &itemValue);
+      }
+      fProxy->Insert(buff.get(), value->GetRawPtr(), count);
+      for (std::size_t i = 0; i < count; ++i) {
+         auto itemValue = fSubFields[0]->CaptureValue(buff.get() + (i * fItemSize));
+         fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+      }
+      collectionStart = collectionStart + count;
+      nItemsLeft -= count;
+   }
+}
+
+void ROOT::Experimental::RCollectionClassField::GenerateColumnsImpl()
+{
+   RColumnModel modelIndex(EColumnType::kIndex, true /* isSorted*/);
+   fColumns.emplace_back(
+      std::unique_ptr<Detail::RColumn>(Detail::RColumn::Create<ClusterSize_t, EColumnType::kIndex>(modelIndex, 0)));
+}
+
+void ROOT::Experimental::RCollectionClassField::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kIndex}, 0, desc);
+   GenerateColumnsImpl();
+}
+
+ROOT::Experimental::Detail::RFieldValue ROOT::Experimental::RCollectionClassField::GenerateValue(void *where)
+{
+   return Detail::RFieldValue(true /* captureFlag */, this, fProxy->New(where));
+}
+
+void ROOT::Experimental::RCollectionClassField::DestroyValue(const Detail::RFieldValue &value, bool dtorOnly)
+{
+   TVirtualCollectionProxy::TPushPop RAII(fProxy.get(), value.GetRawPtr());
+   if (fProxy->GetProperties() & TVirtualCollectionProxy::kNeedDelete) {
+      auto nItems = fProxy->Size();
+      for (unsigned i = 0; i < nItems; ++i) {
+         auto itemValue = fSubFields[0]->CaptureValue(fProxy->At(i));
+         fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+      }
+   }
+   fProxy->Destructor(value.GetRawPtr(), true /* dtorOnly */);
+   if (!dtorOnly)
+      free(value.GetRawPtr());
+}
+
+ROOT::Experimental::Detail::RFieldValue ROOT::Experimental::RCollectionClassField::CaptureValue(void *where)
+{
+   return Detail::RFieldValue(true /* captureFlag */, this, where);
+}
+
+std::vector<ROOT::Experimental::Detail::RFieldValue>
+ROOT::Experimental::RCollectionClassField::SplitValue(const Detail::RFieldValue &value) const
+{
+   TVirtualCollectionProxy::TPushPop RAII(fProxy.get(), value.GetRawPtr());
+   auto nItems = fProxy->Size();
+   std::vector<Detail::RFieldValue> result;
+   for (unsigned i = 0; i < nItems; ++i) {
+      result.emplace_back(fSubFields[0]->CaptureValue(fProxy->At(i)));
+   }
+   return result;
+}
+
+void ROOT::Experimental::RCollectionClassField::CommitCluster()
+{
+   fNWritten = 0;
+}
+
+void ROOT::Experimental::RCollectionClassField::AcceptVisitor(Detail::RFieldVisitor &visitor) const
+{
+   visitor.VisitCollectionClassField(*this);
+}
+
+//------------------------------------------------------------------------------
+
 ROOT::Experimental::RRecordField::RRecordField(std::string_view fieldName,
                                                std::vector<std::unique_ptr<Detail::RFieldBase>> &&itemFields,
                                                const std::vector<std::size_t> &offsets, std::string_view typeName)
    : ROOT::Experimental::Detail::RFieldBase(fieldName, typeName, ENTupleStructure::kRecord, false /* isSimple */),
      fOffsets(offsets)
 {
+   fTraits = kTraitTrivialType;
    for (auto &item : itemFields) {
       fMaxAlignment = std::max(fMaxAlignment, item->GetAlignment());
       fSize += GetItemPadding(fSize, item->GetAlignment()) + item->GetValueSize();
+      fTraits &= item->GetTraits();
       Attach(std::move(item));
    }
 }
@@ -933,11 +1121,13 @@ ROOT::Experimental::RRecordField::RRecordField(std::string_view fieldName,
                                                std::vector<std::unique_ptr<Detail::RFieldBase>> &&itemFields)
    : ROOT::Experimental::Detail::RFieldBase(fieldName, "", ENTupleStructure::kRecord, false /* isSimple */)
 {
+   fTraits = kTraitTrivialType;
    for (auto &item : itemFields) {
       fSize += GetItemPadding(fSize, item->GetAlignment());
       fOffsets.push_back(fSize);
       fMaxAlignment = std::max(fMaxAlignment, item->GetAlignment());
       fSize += item->GetValueSize();
+      fTraits &= item->GetTraits();
       Attach(std::move(item));
    }
    // Trailing padding: although this is implementation-dependent, most add enough padding to comply with the
@@ -1078,14 +1268,26 @@ void ROOT::Experimental::RVectorField::ReadGlobalImpl(NTupleSize_t globalIndex, 
    RClusterIndex collectionStart;
    fPrincipalColumn->GetCollectionInfo(globalIndex, &collectionStart, &nItems);
 
-   auto oldNItems = typedValue->size() / fItemSize;
-   for (std::size_t i = nItems; i < oldNItems; ++i) {
-      auto itemValue = fSubFields[0]->CaptureValue(typedValue->data() + (i * fItemSize));
-      fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
-   }
-   typedValue->resize(nItems * fItemSize);
-   for (std::size_t i = oldNItems; i < nItems; ++i) {
-      fSubFields[0]->GenerateValue(typedValue->data() + (i * fItemSize));
+   if (fSubFields[0]->GetTraits() & kTraitTrivialType) {
+      typedValue->resize(nItems * fItemSize);
+   } else {
+      // See "semantics of reading non-trivial objects" in RNTuple's architecture.md
+      const auto oldNItems = typedValue->size() / fItemSize;
+      const bool canRealloc = oldNItems < nItems;
+      bool allDeallocated = false;
+      if (!(fSubFields[0]->GetTraits() & kTraitTriviallyDestructible)) {
+         allDeallocated = canRealloc;
+         for (std::size_t i = allDeallocated ? 0 : nItems; i < oldNItems; ++i) {
+            auto itemValue = fSubFields[0]->CaptureValue(typedValue->data() + (i * fItemSize));
+            fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+         }
+      }
+      typedValue->resize(nItems * fItemSize);
+      if (!(fSubFields[0]->GetTraits() & kTraitTriviallyConstructible)) {
+         for (std::size_t i = allDeallocated ? 0 : oldNItems; i < nItems; ++i) {
+            fSubFields[0]->GenerateValue(typedValue->data() + (i * fItemSize));
+         }
+      }
    }
 
    for (std::size_t i = 0; i < nItems; ++i) {
@@ -1116,10 +1318,12 @@ void ROOT::Experimental::RVectorField::DestroyValue(const Detail::RFieldValue& v
 {
    auto vec = static_cast<std::vector<char>*>(value.GetRawPtr());
    R__ASSERT((vec->size() % fItemSize) == 0);
-   auto nItems = vec->size() / fItemSize;
-   for (unsigned i = 0; i < nItems; ++i) {
-      auto itemValue = fSubFields[0]->CaptureValue(vec->data() + (i * fItemSize));
-      fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+   if (!(fSubFields[0]->GetTraits() & kTraitTriviallyDestructible)) {
+      auto nItems = vec->size() / fItemSize;
+      for (unsigned i = 0; i < nItems; ++i) {
+         auto itemValue = fSubFields[0]->CaptureValue(vec->data() + (i * fItemSize));
+         fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+      }
    }
    vec->~vector();
    if (!dtorOnly)
@@ -1204,19 +1408,28 @@ void ROOT::Experimental::RRVecField::ReadGlobalImpl(NTupleSize_t globalIndex, De
    char *begin = reinterpret_cast<char *>(*beginPtr); // for pointer arithmetics
    const std::size_t oldSize = *sizePtr;
 
+   // See "semantics of reading non-trivial objects" in RNTuple's architecture.md for details
+   // on the element construction/destrution.
+   const bool needsConstruct = !(fSubFields[0]->GetTraits() & kTraitTriviallyConstructible);
+   const bool needsDestruct = !(fSubFields[0]->GetTraits() & kTraitTriviallyDestructible);
+
    // Destroy excess elements, if any
-   for (std::size_t i = nItems; i < oldSize; ++i) {
-      auto itemValue = fSubFields[0]->CaptureValue(begin + (i * fItemSize));
-      fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+   if (needsDestruct) {
+      for (std::size_t i = nItems; i < oldSize; ++i) {
+         auto itemValue = fSubFields[0]->CaptureValue(begin + (i * fItemSize));
+         fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+      }
    }
 
    // Resize RVec (capacity and size)
    if (std::int32_t(nItems) > *capacityPtr) { // must reallocate
       // Destroy old elements: useless work for trivial types, but in case the element type's constructor
       // allocates memory we need to release it here to avoid memleaks (e.g. if this is an RVec<RVec<int>>)
-      for (std::size_t i = 0u; i < oldSize; ++i) {
-         auto itemValue = fSubFields[0]->CaptureValue(begin + (i * fItemSize));
-         fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+      if (needsDestruct) {
+         for (std::size_t i = 0u; i < oldSize; ++i) {
+            auto itemValue = fSubFields[0]->CaptureValue(begin + (i * fItemSize));
+            fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+         }
       }
 
       // TODO Increment capacity by a factor rather than just enough to fit the elements.
@@ -1229,14 +1442,18 @@ void ROOT::Experimental::RRVecField::ReadGlobalImpl(NTupleSize_t globalIndex, De
       *capacityPtr = nItems;
 
       // Placement new for elements that were already there before the resize
-      for (std::size_t i = 0u; i < oldSize; ++i)
-         fSubFields[0]->GenerateValue(begin + (i * fItemSize));
+      if (needsConstruct) {
+         for (std::size_t i = 0u; i < oldSize; ++i)
+            fSubFields[0]->GenerateValue(begin + (i * fItemSize));
+      }
    }
    *sizePtr = nItems;
 
    // Placement new for new elements, if any
-   for (std::size_t i = oldSize; i < nItems; ++i)
-      fSubFields[0]->GenerateValue(begin + (i * fItemSize));
+   if (needsConstruct) {
+      for (std::size_t i = oldSize; i < nItems; ++i)
+         fSubFields[0]->GenerateValue(begin + (i * fItemSize));
+   }
 
    // Read the new values into the collection elements
    for (std::size_t i = 0; i < nItems; ++i) {
@@ -1274,9 +1491,11 @@ void ROOT::Experimental::RRVecField::DestroyValue(const Detail::RFieldValue &val
    auto [beginPtr, sizePtr, capacityPtr] = GetRVecDataMembers(value.GetRawPtr());
 
    char *begin = reinterpret_cast<char *>(*beginPtr); // for pointer arithmetics
-   for (std::int32_t i = 0; i < *sizePtr; ++i) {
-      auto elementValue = fSubFields[0]->CaptureValue(begin + i * fItemSize);
-      fSubFields[0]->DestroyValue(elementValue, true /* dtorOnly */);
+   if (!(fSubFields[0]->GetTraits() & kTraitTriviallyDestructible)) {
+      for (std::int32_t i = 0; i < *sizePtr; ++i) {
+         auto elementValue = fSubFields[0]->CaptureValue(begin + i * fItemSize);
+         fSubFields[0]->DestroyValue(elementValue, true /* dtorOnly */);
+      }
    }
 
    // figure out if we are in the small state, i.e. begin == &inlineBuffer
@@ -1481,6 +1700,7 @@ ROOT::Experimental::RArrayField::RArrayField(
       ENTupleStructure::kLeaf, false /* isSimple */, arrayLength)
    , fItemSize(itemField->GetValueSize()), fArrayLength(arrayLength)
 {
+   fTraits = itemField->GetTraits();
    Attach(std::move(itemField));
 }
 
@@ -1505,7 +1725,7 @@ void ROOT::Experimental::RArrayField::ReadGlobalImpl(NTupleSize_t globalIndex, D
 {
    auto arrayPtr = value->Get<unsigned char>();
    for (unsigned i = 0; i < fArrayLength; ++i) {
-      auto itemValue = fSubFields[0]->GenerateValue(arrayPtr + (i * fItemSize));
+      auto itemValue = fSubFields[0]->CaptureValue(arrayPtr + (i * fItemSize));
       fSubFields[0]->Read(globalIndex * fArrayLength + i, &itemValue);
    }
 }
@@ -1514,7 +1734,7 @@ void ROOT::Experimental::RArrayField::ReadInClusterImpl(const RClusterIndex &clu
 {
    auto arrayPtr = value->Get<unsigned char>();
    for (unsigned i = 0; i < fArrayLength; ++i) {
-      auto itemValue = fSubFields[0]->GenerateValue(arrayPtr + (i * fItemSize));
+      auto itemValue = fSubFields[0]->CaptureValue(arrayPtr + (i * fItemSize));
       fSubFields[0]->Read(RClusterIndex(clusterIndex.GetClusterId(), clusterIndex.GetIndex() * fArrayLength + i),
                           &itemValue);
    }
@@ -1530,6 +1750,9 @@ void ROOT::Experimental::RArrayField::GenerateColumnsImpl(const RNTupleDescripto
 
 ROOT::Experimental::Detail::RFieldValue ROOT::Experimental::RArrayField::GenerateValue(void *where)
 {
+   if (fSubFields[0]->GetTraits() & kTraitTriviallyConstructible)
+      return Detail::RFieldValue(true /* captureFlag */, this, where);
+
    auto arrayPtr = reinterpret_cast<unsigned char *>(where);
    for (unsigned i = 0; i < fArrayLength; ++i) {
       fSubFields[0]->GenerateValue(arrayPtr + (i * fItemSize));
@@ -1540,9 +1763,11 @@ ROOT::Experimental::Detail::RFieldValue ROOT::Experimental::RArrayField::Generat
 void ROOT::Experimental::RArrayField::DestroyValue(const Detail::RFieldValue& value, bool dtorOnly)
 {
    auto arrayPtr = value.Get<unsigned char>();
-   for (unsigned i = 0; i < fArrayLength; ++i) {
-      auto itemValue = fSubFields[0]->CaptureValue(arrayPtr + (i * fItemSize));
-      fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+   if (!(fSubFields[0]->GetTraits() & kTraitTriviallyDestructible)) {
+      for (unsigned i = 0; i < fArrayLength; ++i) {
+         auto itemValue = fSubFields[0]->CaptureValue(arrayPtr + (i * fItemSize));
+         fSubFields[0]->DestroyValue(itemValue, true /* dtorOnly */);
+      }
    }
    if (!dtorOnly)
       free(arrayPtr);
@@ -1588,12 +1813,16 @@ ROOT::Experimental::RVariantField::RVariantField(
    : ROOT::Experimental::Detail::RFieldBase(fieldName,
       "std::variant<" + GetTypeList(itemFields) + ">", ENTupleStructure::kVariant, false /* isSimple */)
 {
+   // The variant needs to initialize its own tag member
+   fTraits = kTraitTriviallyDestructible & ~kTraitTriviallyConstructible;
+
    auto nFields = itemFields.size();
    R__ASSERT(nFields > 0);
    fNWritten.resize(nFields, 0);
    for (unsigned int i = 0; i < nFields; ++i) {
       fMaxItemSize = std::max(fMaxItemSize, itemFields[i]->GetValueSize());
       fMaxAlignment = std::max(fMaxAlignment, itemFields[i]->GetAlignment());
+      fTraits &= itemFields[i]->GetTraits();
       Attach(std::unique_ptr<Detail::RFieldBase>(itemFields[i]));
    }
    fTagOffset = (fMaxItemSize < fMaxAlignment) ? fMaxAlignment : fMaxItemSize;

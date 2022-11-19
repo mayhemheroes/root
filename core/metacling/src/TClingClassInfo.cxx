@@ -211,7 +211,7 @@ void TClingClassInfo::Delete(void *arena, const ROOT::TMetaUtils::TNormalizedCtx
             FullyQualifiedName(GetDecl()).c_str());
       return;
    }
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    cf.ExecDestructor(this, arena, /*nary=*/0, /*withFree=*/true);
 }
 
@@ -231,7 +231,7 @@ void TClingClassInfo::DeleteArray(void *arena, bool dtorOnly, const ROOT::TMetaU
       Error("DeleteArray", "Placement delete of an array is unsupported!\n");
       return;
    }
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    cf.ExecDestructor(this, arena, /*nary=*/1, /*withFree=*/true);
 }
 
@@ -242,7 +242,7 @@ void TClingClassInfo::Destruct(void *arena, const ROOT::TMetaUtils::TNormalizedC
    if (!IsLoaded()) {
       return;
    }
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    cf.ExecDestructor(this, arena, /*nary=*/0, /*withFree=*/false);
 }
 
@@ -815,6 +815,7 @@ bool TClingClassInfo::IsBase(const char *name) const
 
 bool TClingClassInfo::IsEnum(cling::Interpreter *interp, const char *name)
 {
+   R__LOCKGUARD(gInterpreterMutex);
    // Note: This is a static member function.
    TClingClassInfo info(interp, name);
    if (info.IsValid() && (info.Property() & kIsEnum)) {
@@ -1093,7 +1094,7 @@ void *TClingClassInfo::New(const ROOT::TMetaUtils::TNormalizedCtxt &normCtxt) co
       }
    } // End of Lock section.
    void* obj = nullptr;
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    obj = cf.ExecDefaultConstructor(this, kind, type_name,
                                    /*address=*/nullptr, /*nary=*/0);
    if (!obj) {
@@ -1143,7 +1144,7 @@ void *TClingClassInfo::New(int n, const ROOT::TMetaUtils::TNormalizedCtxt &normC
       }
    } // End of Lock section.
    void* obj = nullptr;
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    obj = cf.ExecDefaultConstructor(this, kind, type_name,
                                    /*address=*/nullptr, /*nary=*/(unsigned long)n);
    if (!obj) {
@@ -1194,7 +1195,7 @@ void *TClingClassInfo::New(int n, void *arena, const ROOT::TMetaUtils::TNormaliz
       }
    } // End of Lock section
    void* obj = nullptr;
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    // Note: This will always return arena.
    obj = cf.ExecDefaultConstructor(this, kind, type_name,
                                    /*address=*/arena, /*nary=*/(unsigned long)n);
@@ -1239,7 +1240,7 @@ void *TClingClassInfo::New(void *arena, const ROOT::TMetaUtils::TNormalizedCtxt 
       }
    } // End of Locked section.
    void* obj = nullptr;
-   TClingCallFunc cf(fInterp,normCtxt);
+   TClingCallFunc cf(fInterp);
    // Note: This will always return arena.
    obj = cf.ExecDefaultConstructor(this, kind, type_name,
                                     /*address=*/arena, /*nary=*/0);

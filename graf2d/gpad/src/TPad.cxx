@@ -379,7 +379,7 @@ zombie:
 
 TPad::~TPad()
 {
-   if (!TestBit(kNotDeleted)) return;
+   if (ROOT::Detail::HasBeenDeleted(this)) return;
    Close();
    CloseToolTip(fTip);
    DeleteToolTip(fTip);
@@ -456,7 +456,8 @@ void TPad::AutoExec()
 {
    if (GetCrosshair()) DrawCrosshair();
 
-   if (!fExecs) fExecs = new TList;
+   if (!fExecs)
+      return;
    TIter next(fExecs);
    while (auto exec = (TExec*)next())
       exec->Exec();
@@ -633,7 +634,7 @@ void TPad::Clear(Option_t *option)
       SafeDelete(fView);
       if (fPrimitives) fPrimitives->Clear(option);
       if (fFrame) {
-         if (fFrame->TestBit(kNotDeleted)) delete fFrame;
+         if (! ROOT::Detail::HasBeenDeleted(fFrame)) delete fFrame;
          fFrame = nullptr;
       }
    }
@@ -973,18 +974,18 @@ Int_t TPad::ClipPolygon(Int_t n, Double_t *x, Double_t *y, Int_t nn, Double_t *x
 
 void TPad::Close(Option_t *)
 {
-   if (!TestBit(kNotDeleted)) return;
+   if (ROOT::Detail::HasBeenDeleted(this)) return;
    if (!fMother) return;
-   if (!fMother->TestBit(kNotDeleted)) return;
+   if (ROOT::Detail::HasBeenDeleted(fMother)) return;
 
    if (fPrimitives)
       fPrimitives->Clear();
    if (fView) {
-      if (fView->TestBit(kNotDeleted)) delete fView;
+      if (!ROOT::Detail::HasBeenDeleted(fView)) delete fView;
       fView = nullptr;
    }
    if (fFrame) {
-      if (fFrame->TestBit(kNotDeleted)) delete fFrame;
+      if (!ROOT::Detail::HasBeenDeleted(fFrame)) delete fFrame;
       fFrame = nullptr;
    }
 
@@ -1274,7 +1275,7 @@ void TPad::Draw(Option_t *option)
    // pad cannot be in itself and it can only be in one other pad at a time
    if (!fPrimitives) fPrimitives = new TList;
    if (gPad != this) {
-      if (fMother && fMother->TestBit(kNotDeleted))
+      if (fMother && !ROOT::Detail::HasBeenDeleted(fMother))
             if (fMother->GetListOfPrimitives()) fMother->GetListOfPrimitives()->Remove(this);
       TPad *oldMother = fMother;
       fCanvas = gPad->GetCanvas();
@@ -1655,7 +1656,7 @@ void TPad::DrawColorTable()
          box.DrawBox(xlow, ylow, xup, yup);
          if (color == 1) text.SetTextColor(0);
          else            text.SetTextColor(1);
-         text.DrawText(0.5*(xlow+xup), 0.5*(ylow+yup), Form("%d",color));
+         text.DrawText(0.5*(xlow+xup), 0.5*(ylow+yup), TString::Format("%d",color).Data());
       }
    }
 }
@@ -4611,7 +4612,7 @@ TPad *TPad::Pick(Int_t px, Int_t py, TObjLink *&pickobj)
 void TPad::Pop()
 {
    if (!fMother) return;
-   if (!fMother->TestBit(kNotDeleted)) return;
+   if (ROOT::Detail::HasBeenDeleted(fMother)) return;
    if (!fPrimitives) fPrimitives = new TList;
    if (this == fMother->GetListOfPrimitives()->Last()) return;
 
@@ -5145,10 +5146,11 @@ void TPad::Print(const char *filename, Option_t *option)
       }
    }
 
-   if (strstr(opt,"Preview")) gSystem->Exec(Form("epstool --quiet -t6p %s %s",psname.Data(),psname.Data()));
+   if (strstr(opt,"Preview"))
+      gSystem->Exec(TString::Format("epstool --quiet -t6p %s %s", psname.Data(), psname.Data()).Data());
    if (strstr(opt,"EmbedFonts")) {
-      gSystem->Exec(Form("gs -quiet -dSAFER -dNOPLATFONTS -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -dUseCIEColor -dCompatibilityLevel=1.4 -dPDFSETTINGS=/printer -dCompatibilityLevel=1.4 -dMaxSubsetPct=100 -dSubsetFonts=true -dEmbedAllFonts=true -sOutputFile=pdf_temp.pdf -f %s",
-                          psname.Data()));
+      gSystem->Exec(TString::Format("gs -quiet -dSAFER -dNOPLATFONTS -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -dUseCIEColor -dCompatibilityLevel=1.4 -dPDFSETTINGS=/printer -dCompatibilityLevel=1.4 -dMaxSubsetPct=100 -dSubsetFonts=true -dEmbedAllFonts=true -sOutputFile=pdf_temp.pdf -f %s",
+                          psname.Data()).Data());
       gSystem->Rename("pdf_temp.pdf", psname.Data());
    }
 
@@ -5465,7 +5467,7 @@ void TPad::ResizePad(Option_t *option)
       fAbsHNDC     = fHNDC;
    }
    else {
-      if (parent->GetAbsWNDC()==0.0||parent->GetAbsWNDC()==0.0||fHNDC==0.0||fWNDC==0.0) {
+      if (parent->GetAbsHNDC()==0.0||parent->GetAbsWNDC()==0.0||fHNDC==0.0||fWNDC==0.0) {
          Warning("ResizePad", "The parent pad has at least one zero dimension.");
          return;
       }
@@ -5833,12 +5835,12 @@ void TPad::SavePrimitive(std::ostream &out, Option_t * /*= ""*/)
    }
 
    TIter next(GetListOfPrimitives());
-   TObject *obj;
    Int_t grnum = 0;
 
-   while ((obj = next())) {
+   while (auto obj = next()) {
       if (obj->InheritsFrom(TGraph::Class()))
-         if (!strcmp(obj->GetName(),"Graph")) ((TGraph*)obj)->SetName(Form("Graph%d",grnum++));
+         if (!strcmp(obj->GetName(),"Graph"))
+            ((TGraph*)obj)->SetName(TString::Format("Graph%d",grnum++).Data());
       obj->SavePrimitive(out, (Option_t *)next.GetOption());
    }
    out<<"   "<<cname<<"->Modified();"<<std::endl;
@@ -6908,8 +6910,8 @@ TObject *TPad::WaitPrimitive(const char *pname, const char *emode)
 TObject *TPad::CreateToolTip(const TBox *box, const char *text, Long_t delayms)
 {
    if (gPad->IsBatch()) return nullptr;
-   return (TObject*)gROOT->ProcessLineFast(Form("new TGToolTip((TBox*)0x%zx,\"%s\",%d)",
-                                           (size_t)box,text,(Int_t)delayms));
+   return (TObject*)gROOT->ProcessLineFast(TString::Format("new TGToolTip((TBox*)0x%zx,\"%s\",%d)",
+                                           (size_t)box,text,(Int_t)delayms).Data());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -6919,7 +6921,7 @@ void TPad::DeleteToolTip(TObject *tip)
 {
    // delete tip;
    if (!tip) return;
-   gROOT->ProcessLineFast(Form("delete (TGToolTip*)0x%zx", (size_t)tip));
+   gROOT->ProcessLineFast(TString::Format("delete (TGToolTip*)0x%zx", (size_t)tip).Data());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -6930,8 +6932,8 @@ void TPad::ResetToolTip(TObject *tip)
 {
    if (!tip) return;
    // tip->Reset(this);
-   gROOT->ProcessLineFast(Form("((TGToolTip*)0x%zx)->Reset((TPad*)0x%zx)",
-                          (size_t)tip,(size_t)this));
+   gROOT->ProcessLineFast(TString::Format("((TGToolTip*)0x%zx)->Reset((TPad*)0x%zx)",
+                          (size_t)tip,(size_t)this).Data());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -6941,7 +6943,7 @@ void TPad::CloseToolTip(TObject *tip)
 {
    if (!tip) return;
    // tip->Hide();
-   gROOT->ProcessLineFast(Form("((TGToolTip*)0x%zx)->Hide()",(size_t)tip));
+   gROOT->ProcessLineFast(TString::Format("((TGToolTip*)0x%zx)->Hide()", (size_t)tip).Data());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

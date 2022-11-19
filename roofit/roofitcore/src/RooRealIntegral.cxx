@@ -52,9 +52,174 @@ integration is performed in the various implementations of the RooAbsIntegrator 
 #include <iostream>
 #include <memory>
 
-using namespace std;
-
 ClassImp(RooRealIntegral);
+
+namespace {
+
+struct ServerToAdd {
+   ServerToAdd(RooAbsArg *theArg, bool isShape) : arg{theArg}, isShapeServer{isShape} {}
+   RooAbsArg *arg = nullptr;
+   bool isShapeServer = false;
+};
+
+void addObservableToServers(RooAbsReal const &function, RooAbsArg &leaf, std::vector<ServerToAdd> &serversToAdd,
+                            const char *rangeName)
+{
+   auto leaflv = dynamic_cast<RooAbsRealLValue *>(&leaf);
+   if (leaflv && leaflv->getBinning(rangeName).isParameterized()) {
+      oocxcoutD(&function, Integration)
+         << function.GetName() << " : Observable " << leaf.GetName()
+         << " has parameterized binning, add value dependence of boundary objects rather than shape of leaf"
+         << std::endl;
+      if (leaflv->getBinning(rangeName).lowBoundFunc()) {
+         serversToAdd.emplace_back(leaflv->getBinning(rangeName).lowBoundFunc(), false);
+      }
+      if (leaflv->getBinning(rangeName).highBoundFunc()) {
+         serversToAdd.emplace_back(leaflv->getBinning(rangeName).highBoundFunc(), false);
+      }
+   } else {
+      oocxcoutD(&function, Integration) << function.GetName() << ": Adding observable " << leaf.GetName()
+                                        << " as shape dependent" << std::endl;
+      serversToAdd.emplace_back(&leaf, true);
+   }
+}
+
+void addParameterToServers(RooAbsReal const &function, RooAbsArg &leaf, std::vector<ServerToAdd> &serversToAdd,
+                           bool isShapeServer)
+{
+   if (!isShapeServer) {
+      oocxcoutD(&function, Integration) << function.GetName() << ": Adding parameter " << leaf.GetName()
+                                        << " as value dependent" << std::endl;
+   } else {
+      oocxcoutD(&function, Integration) << function.GetName() << ": Adding parameter " << leaf.GetName()
+                                        << " as shape dependent" << std::endl;
+   }
+   serversToAdd.emplace_back(&leaf, isShapeServer);
+}
+
+enum class MarkedState { Dependent, Independent, AlreadyAdded };
+
+/// Mark all args that recursively are value clients of "dep".
+/// Returns true if something was marked.
+bool unmarkDepValueClients(RooAbsArg const &dep, RooArgSet const &args, std::vector<MarkedState> &marked)
+{
+   assert(args.size() == marked.size());
+   auto index = args.index(dep.GetName());
+   if (index >= 0) {
+      marked[index] = MarkedState::Dependent;
+      for (RooAbsArg *client : dep.valueClients()) {
+         unmarkDepValueClients(*client, args, marked);
+      }
+      return true;
+   }
+   return false;
+}
+
+std::vector<ServerToAdd>
+getValueAndShapeServers(RooAbsReal const &function, RooArgSet const &depList, const char *rangeName)
+{
+   std::vector<ServerToAdd> serversToAdd;
+
+   // Get the full computation graph and sort it topologically
+   RooArgList allArgsList;
+   function.treeNodeServerList(&allArgsList, nullptr, true, true, /*valueOnly=*/false, false);
+   RooArgSet allArgs{allArgsList};
+   allArgs.sortTopologically();
+
+   // Figure out what are all the value servers only
+   RooArgList allValueArgsList;
+   function.treeNodeServerList(&allValueArgsList, nullptr, true, true, /*valueOnly=*/true, false);
+   RooArgSet allValueArgs{allValueArgsList};
+
+   // All "marked" args will be added as value servers to the integral
+   std::vector<MarkedState> marked(allArgs.size(), MarkedState::Independent);
+   marked.back() = MarkedState::Dependent; // We don't want to consider the function itself
+
+   // Mark all args that are (indirect) value servers of the integration
+   // variable or the integration variable itself. If something was marked,
+   // it means the integration variable was in the compute graph and we will
+   // add it to the server list.
+   for (RooAbsArg *dep : depList) {
+      if (unmarkDepValueClients(*dep, allArgs, marked)) {
+         addObservableToServers(function, *allArgs.find(*dep), serversToAdd, rangeName);
+      }
+   }
+
+   // We are adding all independent direct servers of the args depending on the
+   // integration variables
+   for (std::size_t i = 0; i < allArgs.size(); ++i) {
+      if(marked[i] == MarkedState::Dependent) {
+         for(RooAbsArg* server : allArgs[i]->servers()) {
+            int index = allArgs.index(server->GetName());
+            if(index >= 0 && marked[index] == MarkedState::Independent) {
+               addParameterToServers(function, *server, serversToAdd, !allValueArgs.find(*server));
+               marked[index] = MarkedState::AlreadyAdded;
+            }
+         }
+      }
+   }
+
+   return serversToAdd;
+}
+
+void fillAnIntOKDepList(RooAbsReal const &function, RooArgSet const &intDepList, RooArgSet &anIntOKDepList)
+{
+   for (const auto arg : function.servers()) {
+
+      // Dependent or parameter?
+      if (!arg->dependsOnValue(intDepList)) {
+         continue;
+      } else if (!arg->isValueServer(function) && !arg->isShapeServer(function)) {
+         // Skip arg if it is neither value or shape server
+         continue;
+      }
+
+      bool depOK(false);
+      // Check for integratable AbsRealLValue
+
+      if (arg->isDerived()) {
+         RooAbsRealLValue *realArgLV = dynamic_cast<RooAbsRealLValue *>(arg);
+         RooAbsCategoryLValue *catArgLV = dynamic_cast<RooAbsCategoryLValue *>(arg);
+         if ((realArgLV && intDepList.find(realArgLV->GetName()) && (realArgLV->isJacobianOK(intDepList) != 0)) ||
+             catArgLV) {
+
+            // Derived LValue with valid jacobian
+            depOK = true;
+
+            // Now, check for overlaps
+            bool overlapOK = true;
+            for (const auto otherArg : function.servers()) {
+               // skip comparison with self
+               if (arg == otherArg)
+                  continue;
+               if (otherArg->IsA() == RooConstVar::Class())
+                  continue;
+               if (arg->overlaps(*otherArg, true)) {
+               }
+            }
+            // coverity[DEADCODE]
+            if (!overlapOK)
+               depOK = false;
+         }
+      } else {
+         // Fundamental types are always OK
+         depOK = true;
+      }
+
+      // Add server to list of dependents that are OK for analytical integration
+      if (depOK) {
+         anIntOKDepList.add(*arg, true);
+         oocxcoutI(&function, Integration) << function.GetName() << ": Observable " << arg->GetName()
+                                           << " is suitable for analytical integration (if supported by p.d.f)"
+                                           << std::endl;
+      }
+   }
+}
+
+} // namespace
+
+
+using namespace std;
 
 
 Int_t RooRealIntegral::_cacheAllNDim(2) ;
@@ -62,19 +227,7 @@ Int_t RooRealIntegral::_cacheAllNDim(2) ;
 
 ////////////////////////////////////////////////////////////////////////////////
 
-RooRealIntegral::RooRealIntegral() :
-  _valid(false),
-  _respectCompSelect(true),
-  _funcNormSet(0),
-  _iconfig(0),
-  _mode(0),
-  _intOperMode(Hybrid),
-  _restartNumIntEngine(false),
-  _numIntEngine(0),
-  _numIntegrand(0),
-  _rangeName(0),
-  _params(0),
-  _cacheNum(false)
+RooRealIntegral::RooRealIntegral()
 {
   TRACE_CREATE
 }
@@ -96,24 +249,15 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
              const char* rangeName) :
   RooAbsReal(name,title),
   _valid(true),
-  _respectCompSelect(true),
   _sumList("!sumList","Categories to be summed numerically",this,false,false),
   _intList("!intList","Variables to be integrated numerically",this,false,false),
   _anaList("!anaList","Variables to be integrated analytically",this,false,false),
   _jacList("!jacList","Jacobian product term",this,false,false),
   _facList("!facList","Variables independent of function",this,false,true),
-  _function("!func","Function to be integrated",this,
-       const_cast<RooAbsReal&>(function),false,false),
+  _function("!func","Function to be integrated",this,false,false),
   _iconfig((RooNumIntConfig*)config),
   _sumCat("!sumCat","SuperCategory for summation",this,false,false),
-  _mode(0),
-  _intOperMode(Hybrid),
-  _restartNumIntEngine(false),
-  _numIntEngine(0),
-  _numIntegrand(0),
-  _rangeName((TNamed*)RooNameReg::ptr(rangeName)),
-  _params(0),
-  _cacheNum(false)
+  _rangeName((TNamed*)RooNameReg::ptr(rangeName))
 {
   //   A) Check that all dependents are lvalues
   //
@@ -139,26 +283,24 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
   oocxcoutI(&function,Integration) << "RooRealIntegral::ctor(" << GetName() << ") Constructing integral of function "
                  << function.GetName() << " over observables" << depList << " with normalization "
                  << (funcNormSet?*funcNormSet:RooArgSet()) << " with range identifier "
-                 << (rangeName?rangeName:"<none>") << endl ;
+                 << (rangeName?rangeName:"<none>") << std::endl ;
 
 
   // Choose same expensive object cache as integrand
   setExpensiveObjectCache(function.expensiveObjectCache()) ;
-//   cout << "RRI::ctor(" << GetName() << ") setting expensive object cache to " << &expensiveObjectCache() << " as taken from " << function.GetName() << endl ;
+//   cout << "RRI::ctor(" << GetName() << ") setting expensive object cache to " << &expensiveObjectCache() << " as taken from " << function.GetName() << std::endl ;
 
   // Use objects integrator configuration if none is specified
   if (!_iconfig) _iconfig = (RooNumIntConfig*) function.getIntegratorConfig() ;
 
   // Save private copy of funcNormSet, if supplied, excluding factorizing terms
   if (funcNormSet) {
-    _funcNormSet = new RooArgSet ;
+    _funcNormSet = std::make_unique<RooArgSet>();
     for (const auto nArg : *funcNormSet) {
       if (function.dependsOn(*nArg)) {
         _funcNormSet->addClone(*nArg) ;
       }
     }
-  } else {
-    _funcNormSet = 0 ;
   }
 
   //_funcNormSet = funcNormSet ? (RooArgSet*)funcNormSet->snapshot(false) : 0 ;
@@ -185,8 +327,8 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
     }
   }
 
-  if (_facList.getSize()>0) {
-    oocxcoutI(&function,Integration) << function.GetName() << ": Factorizing obserables are " << _facList << endl ;
+  if (!_facList.empty()) {
+    oocxcoutI(&function,Integration) << function.GetName() << ": Factorizing obserables are " << _facList << std::endl ;
   }
 
 
@@ -206,13 +348,13 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
     RooAbsCategoryLValue *catArgLV = dynamic_cast<RooAbsCategoryLValue*>(branch) ;
     if ((realArgLV && (realArgLV->isJacobianOK(intDepList)!=0)) || catArgLV) {
       exclLVBranches.add(*branch) ;
-//       cout << "exclv branch = " << endl ;
+//       cout << "exclv branch = " << std::endl ;
 //       branch->printCompactTree() ;
     }
     if (dependsOnValue(*branch)) {
       branchListVD.add(*branch) ;
     } else {
-//       cout << "value of self does not depend on branch " << branch->GetName() << endl ;
+//       cout << "value of self does not depend on branch " << branch->GetName() << std::endl ;
     }
   }
   exclLVBranches.remove(depList,true,true) ;
@@ -240,11 +382,11 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
     // Attention: counting loop, since erasing from container
     for (std::size_t i=0; i < exclLVBranches.size(); ++i) {
       const RooAbsArg* branch = exclLVBranches[i];
-      RooArgSet* brDepList = branch->getObservables(&intDepList) ;
-      RooArgSet bsList(*brDepList,"bsList") ;
-      delete brDepList ;
+      RooArgSet brDepList;
+      branch->getObservables(&intDepList, brDepList);
+      RooArgSet bsList(brDepList,"bsList") ;
       bsList.remove(exclLVServers,true,true) ;
-      if (bsList.getSize()>0) {
+      if (!bsList.empty()) {
         exclLVBranches.remove(*branch,true,true) ;
         --i;
         converged=false ;
@@ -264,13 +406,13 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
 
   // Replace exclusive lvalue branch servers with lvalue branches
   // WVE Don't do this for binned distributions - deal with this using numeric integration with transformed bin boundaroes
-  if (exclLVServers.getSize()>0 && !function.isBinnedDistribution(exclLVBranches)) {
-//     cout << "activating LVservers " << exclLVServers << " for use in integration " << endl ;
+  if (!exclLVServers.empty() && !function.isBinnedDistribution(exclLVBranches)) {
+//     cout << "activating LVservers " << exclLVServers << " for use in integration " << std::endl ;
     intDepList.remove(exclLVServers) ;
     intDepList.add(exclLVBranches) ;
 
-    //cout << "intDepList removing exclLVServers " << exclLVServers << endl ;
-    //cout << "intDepList adding exclLVBranches " << exclLVBranches << endl ;
+    //cout << "intDepList removing exclLVServers " << exclLVServers << std::endl ;
+    //cout << "intDepList adding exclLVBranches " << exclLVBranches << std::endl ;
 
   }
 
@@ -287,8 +429,8 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
     }
   }
 
-  if (anIntOKDepList.getSize()>0) {
-    oocxcoutI(&function,Integration) << function.GetName() << ": Observables that function forcibly requires to be integrated internally " << anIntOKDepList << endl ;
+  if (!anIntOKDepList.empty()) {
+    oocxcoutI(&function,Integration) << function.GetName() << ": Observables that function forcibly requires to be integrated internally " << anIntOKDepList << std::endl ;
   }
 
 
@@ -297,119 +439,22 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
   //      Add all parameters/dependents as value/shape servers     *
   // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
-  for (const auto arg : function.servers()) {
+  auto serversToAdd = getValueAndShapeServers(function, depList, rangeName);
+  fillAnIntOKDepList(function, intDepList, anIntOKDepList);
+  // We will not add the servers just now, because it makes only sense to add
+  // them once we have made sure that this integral is not operating in
+  // pass-through mode. It will be done at the end of this constructor.
 
-    // Dependent or parameter?
-    if (!arg->dependsOnValue(intDepList)) {
-
-      if (function.dependsOnValue(*arg)) {
-        addServer(*arg,true,false) ;
-      }
-
-      continue ;
-
-    } else {
-
-      // Add final dependents of arg as shape servers
-
-      // We keep track separately of all leaves and the leaves that are only
-      // value servers to `arg`, which in this code branch is always a value
-      // server of the original function. With the additional value-only server
-      // list, we can quicky check if a given leaf is also a value server to
-      // the top-level `function`, because if and only if `leaf` is a value
-      // server of `arg` is it also a value server of `function`. The expensive
-      // calls to `function.dependsOnValue(*leaf)` that were used before are
-      // avoided like this.
-      RooArgSet argLeafServers ;
-      RooArgSet argLeafValueServers ;
-      arg->treeNodeServerList(&argLeafServers,nullptr,false,true,/*valueOnly=*/false,false) ;
-      arg->treeNodeServerList(&argLeafValueServers,nullptr,false,true,/*valueOnly=*/true,false) ;
-
-      // Skip arg if it is neither value or shape server
-      if (!arg->isValueServer(function) && !arg->isShapeServer(function)) {
-        continue ;
-      }
-
-      for (const auto leaf : argLeafServers) {
-
-        if (depList.find(leaf->GetName()) && argLeafValueServers.contains(*leaf)) {
-
-          RooAbsRealLValue* leaflv = dynamic_cast<RooAbsRealLValue*>(leaf) ;
-          if (leaflv && leaflv->getBinning(rangeName).isParameterized()) {
-            oocxcoutD(&function,Integration) << function.GetName() << " : Observable " << leaf->GetName() << " has parameterized binning, add value dependence of boundary objects rather than shape of leaf" << endl ;
-            if (leaflv->getBinning(rangeName).lowBoundFunc()) {
-              addServer(*leaflv->getBinning(rangeName).lowBoundFunc(),true,false) ;
-            }
-            if(leaflv->getBinning(rangeName).highBoundFunc()) {
-              addServer(*leaflv->getBinning(rangeName).highBoundFunc(),true,false) ;
-            }
-          } else {
-            oocxcoutD(&function,Integration) << function.GetName() << ": Adding observable " << leaf->GetName() << " of server "
-                << arg->GetName() << " as shape dependent" << endl ;
-            addServer(*leaf,false,true) ;
-          }
-        } else if (!depList.find(leaf->GetName())) {
-
-          if (argLeafValueServers.contains(*leaf)) {
-            oocxcoutD(&function,Integration) << function.GetName() << ": Adding parameter " << leaf->GetName() << " of server " << arg->GetName() << " as value dependent" << endl ;
-            addServer(*leaf,true,false) ;
-          } else {
-            oocxcoutD(&function,Integration) << function.GetName() << ": Adding parameter " << leaf->GetName() << " of server " << arg->GetName() << " as shape dependent" << endl ;
-            addServer(*leaf,false,true) ;
-          }
-        }
-      }
-    }
-
-    // If this dependent arg is self-normalized, stop here
-    //if (function.selfNormalized()) continue ;
-
-    bool depOK(false) ;
-    // Check for integratable AbsRealLValue
-
-    if (arg->isDerived()) {
-      RooAbsRealLValue    *realArgLV = dynamic_cast<RooAbsRealLValue*>(arg) ;
-      RooAbsCategoryLValue *catArgLV = dynamic_cast<RooAbsCategoryLValue*>(arg) ;
-      if ((realArgLV && intDepList.find(realArgLV->GetName()) && (realArgLV->isJacobianOK(intDepList)!=0)) || catArgLV) {
-
-   // Derived LValue with valid jacobian
-   depOK = true ;
-
-   // Now, check for overlaps
-   bool overlapOK = true ;
-   for (const auto otherArg : function.servers()) {
-     // skip comparison with self
-     if (arg==otherArg) continue ;
-     if (otherArg->IsA()==RooConstVar::Class()) continue ;
-     if (arg->overlaps(*otherArg,true)) {
-     }
-   }
-   // coverity[DEADCODE]
-   if (!overlapOK) depOK=false ;
-
-      }
-    } else {
-      // Fundamental types are always OK
-      depOK = true ;
-    }
-
-    // Add server to list of dependents that are OK for analytical integration
-    if (depOK) {
-      anIntOKDepList.add(*arg,true) ;
-      oocxcoutI(&function,Integration) << function.GetName() << ": Observable " << arg->GetName() << " is suitable for analytical integration (if supported by p.d.f)" << endl ;
-    }
-  }
   // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
   // * E) interact with function to make list of objects actually integrated analytically  *
   // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
 
   RooArgSet anIntDepList ;
 
-  RooArgSet *anaSet = new RooArgSet( _anaList, Form("UniqueCloneOf_%s",_anaList.GetName()));
-  _mode = ((RooAbsReal&)_function.arg()).getAnalyticalIntegralWN(anIntOKDepList,*anaSet,_funcNormSet,RooNameReg::str(_rangeName)) ;
+  RooArgSet anaSet{ _anaList, Form("UniqueCloneOf_%s",_anaList.GetName())};
+  _mode = function.getAnalyticalIntegralWN(anIntOKDepList,anaSet,_funcNormSet.get(),RooNameReg::str(_rangeName)) ;
   _anaList.removeAll() ;
-  _anaList.add(*anaSet);
-  delete anaSet;
+  _anaList.add(anaSet);
 
   // Avoid confusion -- if mode is zero no analytical integral is defined regardless of contents of _anaListx
   if (_mode==0) {
@@ -417,24 +462,14 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
   }
 
   if (_mode!=0) {
-    oocxcoutI(&function,Integration) << function.GetName() << ": Function integrated observables " << _anaList << " internally with code " << _mode << endl ;
-  }
-
-  // when _funcNormSet is a nullptr a warning message appears for RooAddPdf functions
-  // This is not a problem since we do noty use the returned value from getVal()
-  // we then disable the produced warning message in the RooFit::Eval topic
-  std::unique_ptr<RooHelpers::LocalChangeMsgLevel> msgChanger;
-  if (_funcNormSet == nullptr) {
-     // remove only the RooFit::Eval message topic from current active streams
-     // passed level can be whatever if we provide a false as last argument
-     msgChanger = std::make_unique<RooHelpers::LocalChangeMsgLevel>(RooFit::WARNING, 0u, RooFit::Eval, false);
+    oocxcoutI(&function,Integration) << function.GetName() << ": Function integrated observables " << _anaList << " internally with code " << _mode << std::endl ;
   }
 
   // WVE kludge: synchronize dset for use in analyticalIntegral
-  // LM : is this really needed ??
-  function.getVal(_funcNormSet) ;
-  // delete LocalChangeMsgLevel which will restore previous message level
-  msgChanger.reset(nullptr);
+  // LM : I think this is needed only if  _funcNormSet is not an empty set
+  if (_funcNormSet && !_funcNormSet->empty()) {
+    function.getVal(_funcNormSet.get()) ;
+  }
 
   // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
   // * F) Make list of numerical integration variables consisting of:            *
@@ -468,18 +503,18 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
 
   // If nothing was integrated analytically, swap back LVbranches for LVservers for subsequent numeric integration
   if (_anaList.empty()) {
-    if (exclLVServers.getSize()>0) {
-      //cout << "NUMINT phase analList is empty. exclLVServers = " << exclLVServers << endl ;
+    if (!exclLVServers.empty()) {
+      //cout << "NUMINT phase analList is empty. exclLVServers = " << exclLVServers << std::endl ;
       intDepList.remove(exclLVBranches) ;
       intDepList.add(exclLVServers) ;
      }
   }
-  //cout << "NUMINT intDepList = " << intDepList << endl ;
+  //cout << "NUMINT intDepList = " << intDepList << std::endl ;
 
   // Loop again over function servers to add remaining numeric integrations
   for (const auto arg : function.servers()) {
 
-    //cout << "processing server for numeric integration " << arg->ClassName() << "::" << arg->GetName() << endl ;
+    //cout << "processing server for numeric integration " << arg->ClassName() << "::" << arg->GetName() << std::endl ;
 
     // Process only servers that are not treated analytically
     if (!_anaList.find(arg->GetName()) && arg->dependsOn(intDepList)) {
@@ -493,7 +528,7 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
         // Expand server in final dependents
         auto argDeps = std::unique_ptr<RooArgSet>(arg->getObservables(&intDepList));
 
-        if (argDeps->getSize()>0) {
+        if (!argDeps->empty()) {
 
           // Add final dependents, that are not forcibly integrated analytically,
           // to numerical integration list
@@ -520,28 +555,32 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
     }
   }
 
-  if (_anaList.getSize()>0) {
-    oocxcoutI(&function,Integration) << function.GetName() << ": Observables " << _anaList << " are analytically integrated with code " << _mode << endl ;
+  if (!_anaList.empty()) {
+    oocxcoutI(&function,Integration) << function.GetName() << ": Observables " << _anaList << " are analytically integrated with code " << _mode << std::endl ;
   }
-  if (_intList.getSize()>0) {
-    oocxcoutI(&function,Integration) << function.GetName() << ": Observables " << _intList << " are numerically integrated" << endl ;
+  if (!_intList.empty()) {
+    oocxcoutI(&function,Integration) << function.GetName() << ": Observables " << _intList << " are numerically integrated" << std::endl ;
   }
-  if (_sumList.getSize()>0) {
-    oocxcoutI(&function,Integration) << function.GetName() << ": Observables " << _sumList << " are numerically summed" << endl ;
+  if (!_sumList.empty()) {
+    oocxcoutI(&function,Integration) << function.GetName() << ": Observables " << _sumList << " are numerically summed" << std::endl ;
   }
 
 
   // Determine operating mode
-  if (numIntDepList.getSize()>0) {
+  if (!numIntDepList.empty()) {
     // Numerical and optional Analytical integration
     _intOperMode = Hybrid ;
-  } else if (_anaList.getSize()>0) {
+  } else if (!_anaList.empty()) {
     // Purely analytical integration
     _intOperMode = Analytic ;
   } else {
-    // No integration performed
+    // No integration performed, where the function is a direct value server
     _intOperMode = PassThrough ;
+    _function._valueServer = true;
   }
+  // We are only setting the function proxy now that it's clear if it's a value
+  // server or not.
+  _function.setArg(const_cast<RooAbsReal&>(function));
 
   // Determine auto-dirty status
   autoSelectDirtyMode() ;
@@ -551,9 +590,16 @@ RooRealIntegral::RooRealIntegral(const char *name, const char *title,
   _sumList.snapshot(_saveSum) ;
 
 
-  if (_sumList.getSize()>0) {
-    RooSuperCategory *sumCat = new RooSuperCategory(Form("%s_sumCat",GetName()),"sumCat",_sumList) ;
-    _sumCat.addOwned(*sumCat) ;
+  if (!_sumList.empty()) {
+    _sumCat.addOwned(std::make_unique<RooSuperCategory>(Form("%s_sumCat",GetName()),"sumCat",_sumList));
+  }
+
+  // Only if we are not in pass-through mode we need to add the shape and value
+  // servers separately.
+  if(_intOperMode != PassThrough) {
+    for(auto const& toAdd : serversToAdd) {
+      addServer(*toAdd.arg, !toAdd.isShapeServer, toAdd.isShapeServer);
+    }
   }
 
   TRACE_CREATE
@@ -636,47 +682,43 @@ bool RooRealIntegral::servesExclusively(const RooAbsArg* server,const RooArgSet&
 bool RooRealIntegral::initNumIntegrator() const
 {
   // if we already have an engine, check if it still works for the present limits.
-  if(0 != _numIntEngine) {
+  if(_numIntEngine) {
     if(_numIntEngine->isValid() && _numIntEngine->checkLimits() && !_restartNumIntEngine ) return true;
     // otherwise, cleanup the old engine
-    delete _numIntEngine ;
-    _numIntEngine= 0;
-    if(0 != _numIntegrand) {
-      delete _numIntegrand;
-      _numIntegrand= 0;
-    }
+    _numIntEngine.reset();
+    _numIntegrand.reset();
   }
 
   // All done if there are no arguments to integrate numerically
-  if(0 == _intList.getSize()) return true;
+  if(_intList.empty()) return true;
 
   // Bind the appropriate analytic integral (specified by _mode) of our RooRealVar object to
   // those of its arguments that will be integrated out numerically.
   if(_mode != 0) {
-    _numIntegrand= new RooRealAnalytic(_function.arg(),_intList,_mode,_funcNormSet,_rangeName);
+    _numIntegrand = std::make_unique<RooRealAnalytic>(*_function,_intList,_mode,_funcNormSet.get(),_rangeName);
   }
   else {
-    _numIntegrand= new RooRealBinding(_function.arg(),_intList,_funcNormSet,false,_rangeName);
+    _numIntegrand = std::make_unique<RooRealBinding>(*_function,_intList,_funcNormSet.get(),false,_rangeName);
   }
   if(0 == _numIntegrand || !_numIntegrand->isValid()) {
-    coutE(Integration) << ClassName() << "::" << GetName() << ": failed to create valid integrand." << endl;
+    coutE(Integration) << ClassName() << "::" << GetName() << ": failed to create valid integrand." << std::endl;
     return false;
   }
 
   // Create appropriate numeric integrator using factory
-  bool isBinned = _function.arg().isBinnedDistribution(_intList) ;
-  _numIntEngine = RooNumIntFactory::instance().createIntegrator(*_numIntegrand,*_iconfig,0,isBinned) ;
+  bool isBinned = _function->isBinnedDistribution(_intList) ;
+  _numIntEngine.reset(RooNumIntFactory::instance().createIntegrator(*_numIntegrand,*_iconfig,0,isBinned));
 
-  if(0 == _numIntEngine || !_numIntEngine->isValid()) {
-    coutE(Integration) << ClassName() << "::" << GetName() << ": failed to create valid integrator." << endl;
+  if(_numIntEngine == nullptr || !_numIntEngine->isValid()) {
+    coutE(Integration) << ClassName() << "::" << GetName() << ": failed to create valid integrator." << std::endl;
     return false;
   }
 
   cxcoutI(NumIntegration) << "RooRealIntegral::init(" << GetName() << ") using numeric integrator "
-           << _numIntEngine->ClassName() << " to calculate Int" << _intList << endl ;
+           << _numIntEngine->ClassName() << " to calculate Int" << _intList << std::endl ;
 
-  if (_intList.getSize()>3) {
-    cxcoutI(NumIntegration) << "RooRealIntegral::init(" << GetName() << ") evaluation requires " << _intList.getSize() << "-D numeric integration step. Evaluation may be slow, sufficient numeric precision for fitting & minimization is not guaranteed" << endl ;
+  if (_intList.size()>3) {
+    cxcoutI(NumIntegration) << "RooRealIntegral::init(" << GetName() << ") evaluation requires " << _intList.size() << "-D numeric integration step. Evaluation may be slow, sufficient numeric precision for fitting & minimization is not guaranteed" << std::endl ;
   }
 
   _restartNumIntEngine = false ;
@@ -703,13 +745,10 @@ RooRealIntegral::RooRealIntegral(const RooRealIntegral& other, const char* name)
   _mode(other._mode),
   _intOperMode(other._intOperMode),
   _restartNumIntEngine(false),
-  _numIntEngine(0),
-  _numIntegrand(0),
   _rangeName(other._rangeName),
-  _params(0),
   _cacheNum(false)
 {
- _funcNormSet = other._funcNormSet ? (RooArgSet*)other._funcNormSet->snapshot(false) : 0 ;
+ _funcNormSet.reset(other._funcNormSet ? static_cast<RooArgSet*>(other._funcNormSet->snapshot(false)) : nullptr);
 
  for (const auto arg : other._facList) {
    RooAbsArg* argClone = (RooAbsArg*) arg->Clone() ;
@@ -725,22 +764,12 @@ RooRealIntegral::RooRealIntegral(const RooRealIntegral& other, const char* name)
 }
 
 
-
 ////////////////////////////////////////////////////////////////////////////////
 
 RooRealIntegral::~RooRealIntegral()
-  // Destructor
 {
-  if (_numIntEngine) delete _numIntEngine ;
-  if (_numIntegrand) delete _numIntegrand ;
-  if (_funcNormSet) delete _funcNormSet ;
-  if (_params) delete _params ;
-
   TRACE_DESTROY
 }
-
-
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -760,22 +789,18 @@ RooAbsReal* RooRealIntegral::createIntegral(const RooArgSet& iset, const RooArgS
   isetAll.add(_facList) ;
 
   const RooArgSet* newNormSet(0) ;
-  RooArgSet* tmp(0) ;
+  std::unique_ptr<RooArgSet> tmp;
   if (nset && !_funcNormSet) {
     newNormSet = nset ;
   } else if (!nset && _funcNormSet) {
-    newNormSet = _funcNormSet ;
+    newNormSet = _funcNormSet.get();
   } else if (nset && _funcNormSet) {
-    tmp = new RooArgSet ;
+    tmp = std::make_unique<RooArgSet>();
     tmp->add(*nset) ;
     tmp->add(*_funcNormSet,true) ;
-    newNormSet = tmp ;
+    newNormSet = tmp.get();
   }
-  RooAbsReal* ret =  _function.arg().createIntegral(isetAll,newNormSet,cfg,rangeName) ;
-
-  if (tmp) {
-    delete tmp ;
-  }
+  RooAbsReal* ret =  _function->createIntegral(isetAll,newNormSet,cfg,rangeName) ;
 
   return ret ;
 }
@@ -824,13 +849,13 @@ double RooRealIntegral::evaluate() const
     {
       // Cache numeric integrals in >1d expensive object cache
       RooDouble* cacheVal(0) ;
-      if ((_cacheNum && _intList.getSize()>0) || _intList.getSize()>=_cacheAllNDim) {
+      if ((_cacheNum && !_intList.empty()) || _intList.getSize()>=_cacheAllNDim) {
         cacheVal = (RooDouble*) expensiveObjectCache().retrieveObject(GetName(),RooDouble::Class(),parameters())  ;
       }
 
       if (cacheVal) {
         retVal = *cacheVal ;
-   // cout << "using cached value of integral" << GetName() << endl ;
+   // cout << "using cached value of integral" << GetName() << std::endl ;
       } else {
 
 
@@ -842,7 +867,7 @@ double RooRealIntegral::evaluate() const
         // try to initialize our numerical integration engine
         if(!(_valid= initNumIntegrator())) {
           coutE(Integration) << ClassName() << "::" << GetName()
-                             << ":evaluate: cannot initialize numerical integrator" << endl;
+                             << ":evaluate: cannot initialize numerical integrator" << std::endl;
           return 0;
         }
 
@@ -862,10 +887,10 @@ double RooRealIntegral::evaluate() const
         _sumList.assign(_saveSum) ;
 
         // Cache numeric integrals in >1d expensive object cache
-        if ((_cacheNum && _intList.getSize()>0) || _intList.getSize()>=_cacheAllNDim) {
+        if ((_cacheNum && !_intList.empty()) || _intList.getSize()>=_cacheAllNDim) {
           RooDouble* val = new RooDouble(retVal) ;
-          expensiveObjectCache().registerObject(_function.arg().GetName(),GetName(),*val,parameters())  ;
-          //     cout << "### caching value of integral" << GetName() << " in " << &expensiveObjectCache() << endl ;
+          expensiveObjectCache().registerObject(_function->GetName(),GetName(),*val,parameters())  ;
+          //     cout << "### caching value of integral" << GetName() << " in " << &expensiveObjectCache() << std::endl ;
         }
 
       }
@@ -873,10 +898,10 @@ double RooRealIntegral::evaluate() const
     }
   case Analytic:
     {
-      retVal =  ((RooAbsReal&)_function.arg()).analyticalIntegralWN(_mode,_funcNormSet,RooNameReg::str(_rangeName)) / jacobianProduct() ;
+      retVal = _function->analyticalIntegralWN(_mode,_funcNormSet.get(),RooNameReg::str(_rangeName)) / jacobianProduct() ;
       cxcoutD(Tracing) << "RooRealIntegral::evaluate_analytic(" << GetName()
-             << ")func = " << _function.arg().ClassName() << "::" << _function.arg().GetName()
-             << " raw = " << retVal << " _funcNormSet = " << (_funcNormSet?*_funcNormSet:RooArgSet()) << endl ;
+             << ")func = " << _function->ClassName() << "::" << _function->GetName()
+             << " raw = " << retVal << " _funcNormSet = " << (_funcNormSet?*_funcNormSet:RooArgSet()) << std::endl ;
 
 
       break ;
@@ -884,8 +909,16 @@ double RooRealIntegral::evaluate() const
 
   case PassThrough:
     {
+      // In pass through mode, the RooRealIntegral should have registered the
+      // function as a value server, because we directly depend on its value.
+      assert(_function.isValueServer());
+      // There should be no other servers besides the actual function and the
+      // factorized observables that the function doesn't depend on but are
+      // integrated over later.
+      assert(servers().size() == _facList.size() + 1);
+
       //setDirtyInhibit(true) ;
-      retVal= _function.arg().getVal(_funcNormSet) ;
+      retVal= _function->getVal(_funcNormSet.get()) ;
       //setDirtyInhibit(false) ;
       break ;
     }
@@ -893,7 +926,7 @@ double RooRealIntegral::evaluate() const
 
 
   // Multiply answer with integration ranges of factorized variables
-  if (_facList.getSize()>0) {
+  if (!_facList.empty()) {
     for (const auto arg : _facList) {
       // Multiply by fit range for 'real' dependents
       if (arg->IsA()->InheritsFrom(RooAbsRealLValue::Class())) {
@@ -917,7 +950,7 @@ double RooRealIntegral::evaluate() const
     case PassThrough: ccoutD(Tracing) << "PassThrough" ; break ;
     }
 
-    ccxcoutD(Tracing) << "raw*fact = " << retVal << endl ;
+    ccxcoutD(Tracing) << "raw*fact = " << retVal << std::endl ;
   }
 
   return retVal ;
@@ -952,7 +985,7 @@ double RooRealIntegral::jacobianProduct() const
 
 double RooRealIntegral::sum() const
 {
-  if (_sumList.getSize()!=0) {
+  if (!_sumList.empty()) {
     // Add integrals for all permutations of categories summed over
     double total(0) ;
 
@@ -981,7 +1014,7 @@ double RooRealIntegral::integrate() const
 {
   if (!_numIntEngine) {
     // Trivial case, fully analytical integration
-    return ((RooAbsReal&)_function.arg()).analyticalIntegralWN(_mode,_funcNormSet,RooNameReg::str(_rangeName)) ;
+    return _function->analyticalIntegralWN(_mode,_funcNormSet.get(),RooNameReg::str(_rangeName)) ;
   } else {
     return _numIntEngine->calculate()  ;
   }
@@ -992,8 +1025,8 @@ double RooRealIntegral::integrate() const
 ////////////////////////////////////////////////////////////////////////////////
 /// Intercept server redirects and reconfigure internal object accordingly
 
-bool RooRealIntegral::redirectServersHook(const RooAbsCollection& /*newServerList*/,
-                   bool /*mustReplaceAll*/, bool /*nameChange*/, bool /*isRecursive*/)
+bool RooRealIntegral::redirectServersHook(const RooAbsCollection& newServerList,
+                   bool mustReplaceAll, bool nameChange, bool isRecursive)
 {
   _restartNumIntEngine = true ;
 
@@ -1006,12 +1039,9 @@ bool RooRealIntegral::redirectServersHook(const RooAbsCollection& /*newServerLis
   _sumList.snapshot(_saveSum) ;
 
   // Delete parameters cache if we have one
-  if (_params) {
-    delete _params ;
-    _params = 0 ;
-  }
+  _params.reset();
 
-  return false ;
+  return RooAbsReal::redirectServersHook(newServerList, mustReplaceAll, nameChange, isRecursive);
 }
 
 
@@ -1021,7 +1051,7 @@ bool RooRealIntegral::redirectServersHook(const RooAbsCollection& /*newServerLis
 const RooArgSet& RooRealIntegral::parameters() const
 {
   if (!_params) {
-    _params = new RooArgSet("params") ;
+    _params = std::make_unique<RooArgSet>("params") ;
 
     RooArgSet params ;
     for (const auto server : _serverList) {
@@ -1062,32 +1092,26 @@ void RooRealIntegral::setAllowComponentSelection(bool allow){
 void RooRealIntegral::printMetaArgs(ostream& os) const
 {
 
-  if (intVars().getSize()!=0) {
+  if (!intVars().empty()) {
     os << "Int " ;
   }
-  os << _function.arg().GetName() ;
+  os << _function->GetName() ;
   if (_funcNormSet) {
-    os << "_Norm" ;
-    os << *_funcNormSet ;
-    os << " " ;
+    os << "_Norm" << *_funcNormSet << " " ;
   }
 
   // List internally integrated observables and factorizing observables as analytically integrated
   RooArgSet tmp(_anaList) ;
   tmp.add(_facList) ;
-  if (tmp.getSize()>0) {
-    os << "d[Ana]" ;
-    os << tmp ;
-    os << " " ;
+  if (!tmp.empty()) {
+    os << "d[Ana]" << tmp << " ";
   }
 
   // List numerically integrated and summed observables as numerically integrated
   RooArgSet tmp2(_intList) ;
   tmp2.add(_sumList) ;
-  if (tmp2.getSize()>0) {
-    os << " d[Num]" ;
-    os << tmp2 ;
-    os << " " ;
+  if (!tmp2.empty()) {
+    os << " d[Num]" << tmp2 << " ";
   }
 }
 
@@ -1099,25 +1123,25 @@ void RooRealIntegral::printMetaArgs(ostream& os) const
 void RooRealIntegral::printMultiline(ostream& os, Int_t contents, bool verbose, TString indent) const
 {
   RooAbsReal::printMultiline(os,contents,verbose,indent) ;
-  os << indent << "--- RooRealIntegral ---" << endl;
+  os << indent << "--- RooRealIntegral ---" << std::endl;
   os << indent << "  Integrates ";
-  _function.arg().printStream(os,kName|kArgs,kSingleLine,indent);
+  _function->printStream(os,kName|kArgs,kSingleLine,indent);
   TString deeper(indent);
   deeper.Append("  ");
   os << indent << "  operating mode is "
-     << (_intOperMode==Hybrid?"Hybrid":(_intOperMode==Analytic?"Analytic":"PassThrough")) << endl ;
-  os << indent << "  Summed discrete args are " << _sumList << endl ;
-  os << indent << "  Numerically integrated args are " << _intList << endl;
-  os << indent << "  Analytically integrated args using mode " << _mode << " are " << _anaList << endl ;
-  os << indent << "  Arguments included in Jacobian are " << _jacList << endl ;
-  os << indent << "  Factorized arguments are " << _facList << endl ;
+     << (_intOperMode==Hybrid?"Hybrid":(_intOperMode==Analytic?"Analytic":"PassThrough")) << std::endl ;
+  os << indent << "  Summed discrete args are " << _sumList << std::endl ;
+  os << indent << "  Numerically integrated args are " << _intList << std::endl;
+  os << indent << "  Analytically integrated args using mode " << _mode << " are " << _anaList << std::endl ;
+  os << indent << "  Arguments included in Jacobian are " << _jacList << std::endl ;
+  os << indent << "  Factorized arguments are " << _facList << std::endl ;
   os << indent << "  Function normalization set " ;
   if (_funcNormSet)
     _funcNormSet->Print("1") ;
   else
     os << "<none>" ;
 
-  os << endl ;
+  os << std::endl ;
 }
 
 
@@ -1136,4 +1160,10 @@ void RooRealIntegral::setCacheAllNumeric(Int_t ndim) {
 Int_t RooRealIntegral::getCacheAllNumeric()
 {
   return _cacheAllNDim ;
+}
+
+
+std::unique_ptr<RooArgSet> RooRealIntegral::fillNormSetForServer(RooArgSet const& /*normSet*/,
+                                                                 RooAbsArg const& /*server*/) const {
+  return _funcNormSet ? std::make_unique<RooArgSet>(*_funcNormSet) : nullptr;
 }
