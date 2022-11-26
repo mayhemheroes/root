@@ -1,0 +1,5 @@
+project: root
+target: log2
+
+cmds:
+  - cmd: /fuzz_Log2
