@@ -3,5 +3,6 @@ target: genreflex
 
 cmds:
   - cmd: /install/bin/genreflex @@
+    filepath: /test.h
     env:
       DISABLE_SMOKETEST: '1'
